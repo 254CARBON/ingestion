@@ -1,6 +1,8 @@
-# 254Carbon Ingestion
+# Ingestion Layer (254carbon-ingestion)
 
 > Unified ingestion, connector, and early data processing platform for multi‑market energy & commodities data powering the 254Carbon ecosystem.
+
+***Carbon platform engineered by 254TRADING in Texas***
 
 ---
 
