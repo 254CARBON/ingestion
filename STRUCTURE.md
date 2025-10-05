@@ -1,0 +1,56 @@
+```text
+
+254carbon/
+  ingestion/
+    README.md
+    Makefile
+    pyproject.toml (or requirements.txt)
+    specs.lock.json
+    .agent/
+      context.yaml
+    connectors/
+      base/
+        base_connector.py
+        schema_validator.py
+        utils.py
+      miso/
+        connector.yaml
+        extractor.py
+        transform.py
+        schemas/
+          raw_miso_trade.avsc
+      caiso/ (future)
+    airflow/
+      dags/
+        dynamic_connectors_dag.py
+      plugins/
+        connector_loader.py
+      config/
+        airflow_settings.yaml
+    seatunnel/
+      jobs/
+        miso_realtime.conf
+    scripts/
+      generate_connectors_index.py
+      validate_connectors.py
+      local_run_extractor.py
+    service-connector-registry/
+      service-manifest.yaml
+      openapi/
+        openapi.yaml
+      app/
+        main.py
+        routes/
+          connectors.py
+        core/
+          models.py
+          registry_store.py
+        tests/
+          test_connectors_api.py
+      requirements.txt
+    data/
+      connectors_index.json (generated)
+    docs/
+      CONNECTOR_CONTRACT.md
+      INGESTION_PIPELINE_FLOW.md
+```
