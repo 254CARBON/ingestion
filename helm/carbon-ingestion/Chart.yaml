@@ -1,0 +1,43 @@
+apiVersion: v2
+name: carbon-ingestion
+description: A Helm chart for 254Carbon Ingestion Platform
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/254carbon/ingestion
+sources:
+  - https://github.com/254carbon/ingestion
+maintainers:
+  - name: 254Carbon Team
+    email: team@254carbon.com
+keywords:
+  - carbon
+  - energy
+  - ingestion
+  - data-pipeline
+  - kafka
+  - clickhouse
+annotations:
+  category: Data Processing
+  licenses: Apache-2.0
+dependencies:
+  - name: kafka
+    version: "22.1.5"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: kafka.enabled
+  - name: clickhouse
+    version: "0.9.0"
+    repository: "https://clickhouse.tech/docs/en/operations/kubernetes"
+    condition: clickhouse.enabled
+  - name: redis
+    version: "17.3.7"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+  - name: prometheus
+    version: "19.6.1"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: monitoring.prometheus.enabled
+  - name: grafana
+    version: "6.50.7"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: monitoring.grafana.enabled

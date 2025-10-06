@@ -1,0 +1,184 @@
+{
+  "type": "record",
+  "name": "RawCAISOTrade",
+  "namespace": "com.254carbon.ingestion.caiso",
+  "doc": "Raw CAISO trade data schema",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier"
+    },
+    {
+      "name": "trace_id",
+      "type": "string",
+      "doc": "Trace identifier for correlation"
+    },
+    {
+      "name": "occurred_at",
+      "type": "long",
+      "doc": "Event timestamp in microseconds"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "doc": "Tenant identifier"
+    },
+    {
+      "name": "schema_version",
+      "type": "string",
+      "doc": "Schema version"
+    },
+    {
+      "name": "producer",
+      "type": "string",
+      "doc": "Producer identifier"
+    },
+    {
+      "name": "market",
+      "type": "string",
+      "doc": "Market identifier"
+    },
+    {
+      "name": "market_id",
+      "type": "string",
+      "doc": "Market ID"
+    },
+    {
+      "name": "timezone",
+      "type": "string",
+      "doc": "Timezone"
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "doc": "Currency"
+    },
+    {
+      "name": "unit",
+      "type": "string",
+      "doc": "Unit of measurement"
+    },
+    {
+      "name": "price_unit",
+      "type": "string",
+      "doc": "Price unit"
+    },
+    {
+      "name": "data_type",
+      "type": "string",
+      "doc": "Type of data (trade, curve, market_price, system_status)"
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "doc": "Data source"
+    },
+    {
+      "name": "trade_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Trade identifier"
+    },
+    {
+      "name": "delivery_location",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Delivery location"
+    },
+    {
+      "name": "delivery_date",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Delivery date"
+    },
+    {
+      "name": "delivery_hour",
+      "type": ["null", "int"],
+      "default": null,
+      "doc": "Delivery hour"
+    },
+    {
+      "name": "price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Price"
+    },
+    {
+      "name": "quantity",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Quantity"
+    },
+    {
+      "name": "bid_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Bid price"
+    },
+    {
+      "name": "offer_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Offer price"
+    },
+    {
+      "name": "clearing_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Clearing price"
+    },
+    {
+      "name": "congestion_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Congestion price"
+    },
+    {
+      "name": "loss_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Loss price"
+    },
+    {
+      "name": "curve_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Curve type"
+    },
+    {
+      "name": "price_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Price type"
+    },
+    {
+      "name": "status_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Status type"
+    },
+    {
+      "name": "status_value",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Status value"
+    },
+    {
+      "name": "timestamp",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Timestamp"
+    },
+    {
+      "name": "raw_data",
+      "type": "string",
+      "doc": "Raw data as JSON string"
+    },
+    {
+      "name": "transformation_timestamp",
+      "type": "string",
+      "doc": "Transformation timestamp"
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+name: normalization
+version: 1.0.0
+description: "Service for normalizing raw market data into standardized formats"
+owner: platform
+team: ingestion
+
+service:
+  port: 8510
+  health_endpoint: /health
+  metrics_endpoint: /metrics
+  environment: production
+
+dependencies:
+  - name: connectors
+    type: internal
+    description: "Connector framework and implementations"
+  
+  - name: kafka
+    type: external
+    version: ">=2.0.2"
+    description: "Kafka client libraries"
+
+  - name: avro
+    type: external
+    version: ">=1.11.0"
+    description: "Avro schema support"
+
+capabilities:
+  - data_normalization
+  - schema_validation
+  - data_quality_checks
+  - reprocessing
+  - metrics_collection
+
+endpoints:
+  - path: /health
+    methods: [GET]
+    description: "Health check endpoints"
+  
+  - path: /reprocess
+    methods: [POST, GET, DELETE]
+    description: "Reprocessing endpoints"
+  
+  - path: /metrics
+    methods: [GET]
+    description: "Metrics collection endpoints"
+
+configuration:
+  kafka_bootstrap_servers:
+    type: string
+    default: "localhost:9092"
+    description: "Kafka bootstrap servers"
+  
+  input_topic_pattern:
+    type: string
+    default: "ingestion.*.raw.v1"
+    description: "Input topic pattern"
+  
+  output_topic:
+    type: string
+    default: "normalized.market.ticks.v1"
+    description: "Output topic"
+  
+  schema_registry_url:
+    type: string
+    default: "http://localhost:8081"
+    description: "Schema registry URL"
+  
+  parallelism:
+    type: integer
+    default: 4
+    description: "Processing parallelism"
+
+monitoring:
+  metrics:
+    - name: normalization_records_processed_total
+      type: counter
+      description: "Total number of records processed"
+    
+    - name: normalization_latency_seconds_bucket
+      type: histogram
+      description: "Normalization latency distribution"
+    
+    - name: normalization_errors_total
+      type: counter
+      description: "Total normalization errors"
+
+  health_checks:
+    - name: service_health
+      endpoint: /health
+      interval: 30s
+      timeout: 10s
+    
+    - name: kafka_connectivity
+      endpoint: /health/ready
+      interval: 60s
+      timeout: 15s
+
+deployment:
+  replicas: 3
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  
+  strategy:
+    type: RollingUpdate
+    maxUnavailable: 1
+    maxSurge: 1
+
+  scaling:
+    min_replicas: 3
+    max_replicas: 20
+    target_cpu_utilization: 70
+    target_memory_utilization: 80
+
+security:
+  network_policies:
+    - name: allow-kafka
+      description: "Allow Kafka communication"
+    
+    - name: allow-health-checks
+      description: "Allow health check access"
+
+  pod_security:
+    run_as_non_root: true
+    read_only_root_filesystem: true
+    allow_privilege_escalation: false
+
+observability:
+  logging:
+    level: INFO
+    format: json
+    fields:
+      - service
+      - trace_id
+      - market
+      - connector
+  
+  tracing:
+    enabled: true
+    sampling_rate: 0.1
+    jaeger_endpoint: "http://jaeger:14268/api/traces"
+  
+  metrics:
+    enabled: true
+    prometheus_endpoint: "/metrics"
+    custom_metrics: true
+
+environment:
+  development:
+    replicas: 1
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+  
+  staging:
+    replicas: 2
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
+  
+  production:
+    replicas: 5
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "2000m"

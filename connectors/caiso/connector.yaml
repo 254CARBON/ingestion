@@ -1,0 +1,39 @@
+name: caiso
+version: 1.0.0
+market: CAISO
+mode: batch
+schedule: "0 */2 * * *"
+enabled: true
+output_topic: ingestion.caiso.raw.v1
+schema: schemas/raw_caiso_trade.avsc
+retries: 3
+backoff_seconds: 30
+tenant_strategy: single
+transforms:
+  - name: sanitize_numeric
+  - name: standardize_timezone
+owner: platform
+description: "CAISO market data connector for real-time and historical trading data via web scraping"
+tags:
+  - market-data
+  - energy
+  - trading
+  - real-time
+  - web-scraping
+scraping_config:
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  timeout: 30
+  retry_attempts: 3
+  retry_delay: 5
+  rate_limit_delay: 2
+  max_concurrent_requests: 5
+endpoints:
+  trade_data: "/oasisapi/GroupQuery"
+  curve_data: "/oasisapi/GroupQuery"
+  market_prices: "/oasisapi/GroupQuery"
+  system_status: "/oasisapi/GroupQuery"
+data_types:
+  - trade_data
+  - curve_data
+  - market_prices
+  - system_status

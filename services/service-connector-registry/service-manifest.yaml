@@ -1,0 +1,171 @@
+name: connector-registry
+version: 1.0.0
+description: "REST API for managing connector metadata and discovery"
+owner: platform
+team: ingestion
+
+service:
+  port: 8500
+  health_endpoint: /health
+  metrics_endpoint: /metrics
+  environment: production
+
+dependencies:
+  - name: connectors
+    type: internal
+    description: "Connector framework and implementations"
+  
+  - name: fastapi
+    type: external
+    version: ">=0.104.0"
+    description: "Web framework"
+
+  - name: uvicorn
+    type: external
+    version: ">=0.24.0"
+    description: "ASGI server"
+
+capabilities:
+  - connector_metadata_management
+  - connector_discovery
+  - health_monitoring
+  - metrics_collection
+  - connector_validation
+
+endpoints:
+  - path: /health
+    methods: [GET]
+    description: "Health check endpoints"
+  
+  - path: /connectors
+    methods: [GET]
+    description: "Connector management endpoints"
+  
+  - path: /metrics
+    methods: [GET]
+    description: "Metrics collection endpoints"
+
+configuration:
+  connectors_dir:
+    type: string
+    default: "connectors"
+    description: "Directory containing connector definitions"
+  
+  index_file:
+    type: string
+    default: "connectors_index.json"
+    description: "Connector index file path"
+  
+  enable_cors:
+    type: boolean
+    default: true
+    description: "Enable CORS middleware"
+
+monitoring:
+  metrics:
+    - name: connector_runs_total
+      type: counter
+      description: "Total number of connector runs"
+    
+    - name: connector_health_status
+      type: gauge
+      description: "Connector health status"
+    
+    - name: discovery_operations_total
+      type: counter
+      description: "Total discovery operations"
+
+  health_checks:
+    - name: registry_health
+      endpoint: /health
+      interval: 30s
+      timeout: 10s
+    
+    - name: connector_discovery
+      endpoint: /connectors/discovery
+      interval: 60s
+      timeout: 15s
+
+deployment:
+  replicas: 2
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  strategy:
+    type: RollingUpdate
+    maxUnavailable: 1
+    maxSurge: 1
+
+  scaling:
+    min_replicas: 2
+    max_replicas: 10
+    target_cpu_utilization: 70
+    target_memory_utilization: 80
+
+security:
+  network_policies:
+    - name: allow-internal
+      description: "Allow internal service communication"
+    
+    - name: allow-health-checks
+      description: "Allow health check access"
+
+  pod_security:
+    run_as_non_root: true
+    read_only_root_filesystem: true
+    allow_privilege_escalation: false
+
+observability:
+  logging:
+    level: INFO
+    format: json
+    fields:
+      - service
+      - trace_id
+      - user_id
+  
+  tracing:
+    enabled: true
+    sampling_rate: 0.1
+    jaeger_endpoint: "http://jaeger:14268/api/traces"
+  
+  metrics:
+    enabled: true
+    prometheus_endpoint: "/metrics"
+    custom_metrics: true
+
+environment:
+  development:
+    replicas: 1
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "50m"
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+  
+  staging:
+    replicas: 2
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+  
+  production:
+    replicas: 3
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"

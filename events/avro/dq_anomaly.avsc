@@ -1,0 +1,230 @@
+{
+  "type": "record",
+  "name": "DataQualityAnomaly",
+  "namespace": "com.254carbon.ingestion.quality",
+  "doc": "Data quality anomaly event for monitoring and alerting",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier"
+    },
+    {
+      "name": "trace_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Distributed tracing identifier"
+    },
+    {
+      "name": "occurred_at",
+      "type": "long",
+      "doc": "Timestamp in microseconds since epoch"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "doc": "Tenant identifier for multi-tenancy"
+    },
+    {
+      "name": "schema_version",
+      "type": "string",
+      "default": "1.0.0",
+      "doc": "Schema version for evolution tracking"
+    },
+    {
+      "name": "producer",
+      "type": "string",
+      "doc": "Producer identifier"
+    },
+    {
+      "name": "anomaly_id",
+      "type": "string",
+      "doc": "Unique anomaly identifier"
+    },
+    {
+      "name": "anomaly_type",
+      "type": "string",
+      "doc": "Type of anomaly (Missing, Outlier, Duplicate, etc.)"
+    },
+    {
+      "name": "anomaly_category",
+      "type": "string",
+      "doc": "Category of anomaly (Data, Schema, Business, etc.)"
+    },
+    {
+      "name": "severity",
+      "type": "string",
+      "doc": "Severity level (Critical, High, Medium, Low)"
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "doc": "Status (Open, Investigating, Resolved, Ignored)"
+    },
+    {
+      "name": "market",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Market identifier (MISO, CAISO, etc.)"
+    },
+    {
+      "name": "connector",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Connector identifier"
+    },
+    {
+      "name": "service",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Service identifier"
+    },
+    {
+      "name": "data_source",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Data source identifier"
+    },
+    {
+      "name": "affected_records",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "List of affected record IDs"
+    },
+    {
+      "name": "affected_fields",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "List of affected field names"
+    },
+    {
+      "name": "expected_value",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Expected value (if applicable)"
+    },
+    {
+      "name": "actual_value",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Actual value (if applicable)"
+    },
+    {
+      "name": "threshold_value",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Threshold value (if applicable)"
+    },
+    {
+      "name": "deviation_amount",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Deviation amount (if applicable)"
+    },
+    {
+      "name": "deviation_percentage",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Deviation percentage (if applicable)"
+    },
+    {
+      "name": "confidence_score",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Confidence score for the anomaly detection (0-1)"
+    },
+    {
+      "name": "detection_method",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Method used to detect the anomaly"
+    },
+    {
+      "name": "detection_algorithm",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Algorithm used for detection"
+    },
+    {
+      "name": "detection_parameters",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "Parameters used for detection"
+    },
+    {
+      "name": "time_window",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Time window for the anomaly"
+    },
+    {
+      "name": "frequency",
+      "type": ["null", "int"],
+      "default": null,
+      "doc": "Frequency of occurrence"
+    },
+    {
+      "name": "first_occurrence",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "First occurrence timestamp in microseconds"
+    },
+    {
+      "name": "last_occurrence",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "Last occurrence timestamp in microseconds"
+    },
+    {
+      "name": "description",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Human-readable description of the anomaly"
+    },
+    {
+      "name": "recommendations",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Recommended actions to address the anomaly"
+    },
+    {
+      "name": "related_anomalies",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Related anomaly IDs"
+    },
+    {
+      "name": "tags",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Tags for categorization"
+    },
+    {
+      "name": "metadata",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "Additional metadata"
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+# Aggregation Policies Configuration
+
+# OHLC bar generation policies
+ohlc_policies:
+  # Daily OHLC bars
+  daily:
+    enabled: true
+    aggregation_window: "1D"
+    buffer_size: 1000
+    flush_interval: "1H"
+    min_trades: 1
+    max_trades: 10000
+    
+  # Hourly OHLC bars
+  hourly:
+    enabled: true
+    aggregation_window: "1H"
+    buffer_size: 100
+    flush_interval: "15M"
+    min_trades: 1
+    max_trades: 1000
+    
+  # 15-minute OHLC bars
+  fifteen_minute:
+    enabled: false
+    aggregation_window: "15M"
+    buffer_size: 50
+    flush_interval: "5M"
+    min_trades: 1
+    max_trades: 500
+    
+  # 5-minute OHLC bars
+  five_minute:
+    enabled: false
+    aggregation_window: "5M"
+    buffer_size: 20
+    flush_interval: "1M"
+    min_trades: 1
+    max_trades: 200
+
+# Rolling metrics policies
+rolling_metrics:
+  # Price-based metrics
+  price_metrics:
+    rolling_average_price:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 3
+      max_samples: 1000
+    
+    rolling_price_volatility:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 5
+      max_samples: 1000
+    
+    rolling_price_std:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 3
+      max_samples: 1000
+    
+    rolling_price_percentiles:
+      enabled: true
+      window_sizes: [10, 20, 50]
+      percentiles: [25, 50, 75, 90, 95]
+      min_samples: 10
+      max_samples: 1000
+  
+  # Volume-based metrics
+  volume_metrics:
+    rolling_total_volume:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 1
+      max_samples: 1000
+    
+    rolling_average_volume:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 3
+      max_samples: 1000
+    
+    rolling_volume_volatility:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 5
+      max_samples: 1000
+  
+  # Trade count metrics
+  trade_count_metrics:
+    rolling_trade_count:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 1
+      max_samples: 1000
+    
+    rolling_average_trade_size:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 3
+      max_samples: 1000
+
+# Curve pre-staging policies
+curve_prestage:
+  # Trade curves
+  trade_curves:
+    enabled: true
+    buffer_size: 1000
+    flush_interval: "1H"
+    min_points: 5
+    max_points: 10000
+    
+  # Price curves
+  price_curves:
+    enabled: true
+    buffer_size: 1000
+    flush_interval: "1H"
+    min_points: 5
+    max_points: 10000
+    
+  # Spot curves
+  spot_curves:
+    enabled: true
+    buffer_size: 1000
+    flush_interval: "1H"
+    min_points: 5
+    max_points: 10000
+    
+  # Status curves
+  status_curves:
+    enabled: true
+    buffer_size: 500
+    flush_interval: "1H"
+    min_points: 3
+    max_points: 5000
+
+# Market-specific policies
+market_policies:
+  MISO:
+    # MISO-specific aggregation settings
+    ohlc_policies:
+      daily:
+        enabled: true
+        buffer_size: 2000
+        flush_interval: "30M"
+      hourly:
+        enabled: true
+        buffer_size: 200
+        flush_interval: "10M"
+    
+    rolling_metrics:
+      price_metrics:
+        rolling_average_price:
+          window_sizes: [5, 10, 20, 50, 100]
+        rolling_price_volatility:
+          window_sizes: [10, 20, 50, 100]
+    
+    curve_prestage:
+      trade_curves:
+        buffer_size: 2000
+        flush_interval: "30M"
+  
+  CAISO:
+    # CAISO-specific aggregation settings
+    ohlc_policies:
+      daily:
+        enabled: true
+        buffer_size: 1500
+        flush_interval: "45M"
+      hourly:
+        enabled: true
+        buffer_size: 150
+        flush_interval: "15M"
+    
+    rolling_metrics:
+      price_metrics:
+        rolling_average_price:
+          window_sizes: [5, 10, 20, 50]
+        rolling_price_volatility:
+          window_sizes: [10, 20, 50]
+    
+    curve_prestage:
+      trade_curves:
+        buffer_size: 1500
+        flush_interval: "45M"
+
+# Global aggregation settings
+global:
+  # Buffer management
+  buffer_management:
+    max_total_buffers: 10000
+    buffer_cleanup_interval: "1H"
+    buffer_ttl: "24H"
+    memory_limit_mb: 1024
+  
+  # Performance settings
+  performance:
+    max_concurrent_aggregations: 10
+    aggregation_timeout: 30
+    flush_timeout: 60
+    batch_size: 100
+  
+  # Quality settings
+  quality:
+    min_data_quality_score: 0.8
+    max_missing_values: 0.1
+    outlier_detection: true
+    outlier_threshold: 3.0
+  
+  # Monitoring settings
+  monitoring:
+    metrics_enabled: true
+    detailed_logging: false
+    performance_tracking: true
+    alert_thresholds:
+      aggregation_latency_ms: 1000
+      buffer_size: 5000
+      error_rate: 0.05
+  
+  # Data retention
+  retention:
+    ohlc_bars_days: 365
+    rolling_metrics_days: 90
+    curve_prestage_days: 180
+    raw_buffers_days: 7

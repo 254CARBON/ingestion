@@ -1,0 +1,221 @@
+# Prometheus alerting rules for 254Carbon Ingestion Platform
+
+groups:
+  - name: carbon-ingestion-service-health
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"normalization-service|enrichment-service|aggregation-service|projection-service|connector-registry"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 1 minute"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#service-down"
+
+      - alert: ServiceHighErrorRate
+        expr: rate(http_requests_total{job=~"normalization-service|enrichment-service|aggregation-service|projection-service|connector-registry",status=~"5.."}[5m]) / rate(http_requests_total{job=~"normalization-service|enrichment-service|aggregation-service|projection-service|connector-registry"}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "High error rate for {{ $labels.job }}"
+          description: "Service {{ $labels.job }} has error rate of {{ $value | humanizePercentage }}"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#high-error-rate"
+
+      - alert: ServiceHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~"normalization-service|enrichment-service|aggregation-service|projection-service|connector-registry"}[5m])) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "High latency for {{ $labels.job }}"
+          description: "Service {{ $labels.job }} has P95 latency of {{ $value }}s"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#high-latency"
+
+  - name: carbon-ingestion-data-pipeline
+    rules:
+      - alert: DataPipelineStalled
+        expr: increase(kafka_consumer_lag_sum[10m]) == 0 and kafka_consumer_lag_sum > 1000
+        for: 5m
+        labels:
+          severity: critical
+          component: "data-pipeline"
+        annotations:
+          summary: "Data pipeline is stalled"
+          description: "Kafka consumer lag is {{ $value }} and not decreasing"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#data-pipeline-stalled"
+
+      - alert: HighKafkaConsumerLag
+        expr: kafka_consumer_lag_sum > 10000
+        for: 2m
+        labels:
+          severity: warning
+          component: "kafka"
+        annotations:
+          summary: "High Kafka consumer lag"
+          description: "Kafka consumer lag is {{ $value }} messages"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#high-kafka-lag"
+
+      - alert: DataQualityLow
+        expr: carbon_ingestion_data_quality_score < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          component: "data-quality"
+        annotations:
+          summary: "Data quality score is low"
+          description: "Data quality score is {{ $value | humanizePercentage }}"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#data-quality-issues"
+
+      - alert: MissingData
+        expr: rate(carbon_ingestion_records_processed_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: "data-ingestion"
+        annotations:
+          summary: "No data being processed"
+          description: "No records have been processed in the last 10 minutes"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#missing-data"
+
+  - name: carbon-ingestion-infrastructure
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: "infrastructure"
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}%"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#high-cpu-usage"
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: "infrastructure"
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}%"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#high-memory-usage"
+
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: "infrastructure"
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}%"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#low-disk-space"
+
+      - alert: ClickHouseDown
+        expr: up{job="clickhouse"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: "clickhouse"
+        annotations:
+          summary: "ClickHouse is down"
+          description: "ClickHouse service is not responding"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#clickhouse-down"
+
+      - alert: KafkaDown
+        expr: up{job="kafka"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: "kafka"
+        annotations:
+          summary: "Kafka is down"
+          description: "Kafka service is not responding"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#kafka-down"
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: warning
+          component: "redis"
+        annotations:
+          summary: "Redis is down"
+          description: "Redis service is not responding"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#redis-down"
+
+  - name: carbon-ingestion-connectors
+    rules:
+      - alert: ConnectorFailure
+        expr: carbon_ingestion_connector_errors_total > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: "connector"
+        annotations:
+          summary: "Connector {{ $labels.connector_name }} has errors"
+          description: "Connector {{ $labels.connector_name }} has {{ $value }} errors"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#connector-failure"
+
+      - alert: ConnectorStalled
+        expr: time() - carbon_ingestion_connector_last_success_timestamp > 3600
+        for: 5m
+        labels:
+          severity: critical
+          component: "connector"
+        annotations:
+          summary: "Connector {{ $labels.connector_name }} is stalled"
+          description: "Connector {{ $labels.connector_name }} hasn't succeeded in over 1 hour"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#connector-stalled"
+
+      - alert: ConnectorLowThroughput
+        expr: rate(carbon_ingestion_connector_records_processed_total[5m]) < 10
+        for: 10m
+        labels:
+          severity: warning
+          component: "connector"
+        annotations:
+          summary: "Connector {{ $labels.connector_name }} has low throughput"
+          description: "Connector {{ $labels.connector_name }} is processing {{ $value }} records/second"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#connector-low-throughput"
+
+  - name: carbon-ingestion-airflow
+    rules:
+      - alert: AirflowDAGFailed
+        expr: airflow_dag_run_state{state="failed"} == 1
+        for: 0m
+        labels:
+          severity: critical
+          component: "airflow"
+        annotations:
+          summary: "Airflow DAG {{ $labels.dag_id }} failed"
+          description: "DAG {{ $labels.dag_id }} run {{ $labels.run_id }} failed"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#airflow-dag-failed"
+
+      - alert: AirflowTaskFailed
+        expr: airflow_task_instance_state{state="failed"} == 1
+        for: 0m
+        labels:
+          severity: warning
+          component: "airflow"
+        annotations:
+          summary: "Airflow task {{ $labels.task_id }} failed"
+          description: "Task {{ $labels.task_id }} in DAG {{ $labels.dag_id }} failed"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#airflow-task-failed"
+
+      - alert: AirflowSchedulerDown
+        expr: up{job="airflow-scheduler"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: "airflow"
+        annotations:
+          summary: "Airflow scheduler is down"
+          description: "Airflow scheduler service is not responding"
+          runbook_url: "https://github.com/254carbon/ingestion/wiki/troubleshooting#airflow-scheduler-down"

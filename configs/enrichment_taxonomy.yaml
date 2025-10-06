@@ -1,0 +1,279 @@
+# Enrichment Taxonomy Configuration
+
+# Market-specific taxonomy definitions
+markets:
+  MISO:
+    region: "Midwest"
+    timezone: "America/Chicago"
+    currency: "USD"
+    unit: "MWh"
+    price_unit: "$/MWh"
+    
+    # Instrument taxonomy
+    instruments:
+      trade:
+        - "energy_trading"
+        - "physical_settlement"
+        - "executed_transaction"
+      curve:
+        - "price_curve"
+        - "forward_pricing"
+        - "financial_instrument"
+      market_price:
+        - "spot_pricing"
+        - "real_time_market"
+        - "current_market"
+      system_status:
+        - "operational_status"
+        - "system_health"
+        - "grid_condition"
+    
+    # Location taxonomy
+    locations:
+      hub:
+        - "trading_hub"
+        - "high_liquidity"
+        - "price_discovery"
+      node:
+        - "transmission_node"
+        - "medium_liquidity"
+        - "delivery_point"
+      default:
+        - "generic_location"
+        - "standard_delivery"
+    
+    # Price range taxonomy
+    price_ranges:
+      very_low:
+        min: 0
+        max: 20
+        tags: ["very_low_price", "cheap_energy"]
+      low:
+        min: 20
+        max: 40
+        tags: ["low_price", "affordable_energy"]
+      medium:
+        min: 40
+        max: 80
+        tags: ["medium_price", "moderate_energy"]
+      high:
+        min: 80
+        max: 150
+        tags: ["high_price", "expensive_energy"]
+      very_high:
+        min: 150
+        max: 1000
+        tags: ["very_high_price", "premium_energy"]
+    
+    # Quantity range taxonomy
+    quantity_ranges:
+      very_small:
+        min: 0
+        max: 100
+        tags: ["very_small_quantity", "minimal_volume"]
+      small:
+        min: 100
+        max: 500
+        tags: ["small_quantity", "light_volume"]
+      medium:
+        min: 500
+        max: 1000
+        tags: ["medium_quantity", "moderate_volume"]
+      large:
+        min: 1000
+        max: 5000
+        tags: ["large_quantity", "substantial_volume"]
+      very_large:
+        min: 5000
+        max: 10000
+        tags: ["very_large_quantity", "massive_volume"]
+    
+    # Time period taxonomy
+    time_periods:
+      off_peak:
+        start: 0
+        end: 6
+        tags: ["off_peak", "low_demand", "night_time"]
+      morning:
+        start: 6
+        end: 12
+        tags: ["morning", "rising_demand", "day_time"]
+      afternoon:
+        start: 12
+        end: 18
+        tags: ["afternoon", "peak_demand", "day_time"]
+      evening:
+        start: 18
+        end: 24
+        tags: ["evening", "declining_demand", "night_time"]
+      peak:
+        start: 7
+        end: 9
+        tags: ["peak_hours", "high_demand", "congestion"]
+
+  CAISO:
+    region: "California"
+    timezone: "America/Los_Angeles"
+    currency: "USD"
+    unit: "MWh"
+    price_unit: "$/MWh"
+    
+    # Instrument taxonomy
+    instruments:
+      trade:
+        - "energy_trading"
+        - "physical_settlement"
+        - "executed_transaction"
+      curve:
+        - "price_curve"
+        - "forward_pricing"
+        - "financial_instrument"
+      market_price:
+        - "spot_pricing"
+        - "real_time_market"
+        - "current_market"
+      system_status:
+        - "operational_status"
+        - "system_health"
+        - "grid_condition"
+    
+    # Location taxonomy
+    locations:
+      hub:
+        - "trading_hub"
+        - "high_liquidity"
+        - "price_discovery"
+      node:
+        - "transmission_node"
+        - "medium_liquidity"
+        - "delivery_point"
+      default:
+        - "generic_location"
+        - "standard_delivery"
+    
+    # Price range taxonomy
+    price_ranges:
+      very_low:
+        min: 0
+        max: 20
+        tags: ["very_low_price", "cheap_energy"]
+      low:
+        min: 20
+        max: 40
+        tags: ["low_price", "affordable_energy"]
+      medium:
+        min: 40
+        max: 80
+        tags: ["medium_price", "moderate_energy"]
+      high:
+        min: 80
+        max: 150
+        tags: ["high_price", "expensive_energy"]
+      very_high:
+        min: 150
+        max: 1000
+        tags: ["very_high_price", "premium_energy"]
+    
+    # Quantity range taxonomy
+    quantity_ranges:
+      very_small:
+        min: 0
+        max: 100
+        tags: ["very_small_quantity", "minimal_volume"]
+      small:
+        min: 100
+        max: 500
+        tags: ["small_quantity", "light_volume"]
+      medium:
+        min: 500
+        max: 1000
+        tags: ["medium_quantity", "moderate_volume"]
+      large:
+        min: 1000
+        max: 5000
+        tags: ["large_quantity", "substantial_volume"]
+      very_large:
+        min: 5000
+        max: 10000
+        tags: ["very_large_quantity", "massive_volume"]
+    
+    # Time period taxonomy
+    time_periods:
+      off_peak:
+        start: 0
+        end: 6
+        tags: ["off_peak", "low_demand", "night_time"]
+      morning:
+        start: 6
+        end: 12
+        tags: ["morning", "rising_demand", "day_time"]
+      afternoon:
+        start: 12
+        end: 18
+        tags: ["afternoon", "peak_demand", "day_time"]
+      evening:
+        start: 18
+        end: 24
+        tags: ["evening", "declining_demand", "night_time"]
+      peak:
+        start: 7
+        end: 9
+        tags: ["peak_hours", "high_demand", "congestion"]
+
+# Global enrichment settings
+global:
+  # Default taxonomy settings
+  default_taxonomy:
+    instruments:
+      - "energy_market"
+      - "commodity_trading"
+    locations:
+      - "north_america"
+      - "united_states"
+    price_ranges:
+      - "market_price"
+    quantity_ranges:
+      - "market_quantity"
+    time_periods:
+      - "market_hours"
+  
+  # Enrichment quality thresholds
+  quality_thresholds:
+    completeness: 0.95
+    accuracy: 0.90
+    consistency: 0.95
+    timeliness: 0.90
+    validity: 0.95
+  
+  # Enrichment rules
+  enrichment_rules:
+    apply_taxonomy: true
+    apply_semantic_tags: true
+    apply_geospatial: true
+    apply_metadata: true
+    cache_enabled: true
+    cache_ttl: 3600  # 1 hour
+  
+  # Semantic tagging rules
+  semantic_tagging:
+    market_specific: true
+    data_type_specific: true
+    price_based: true
+    quantity_based: true
+    time_based: true
+    location_based: true
+  
+  # Geospatial enrichment
+  geospatial:
+    enabled: true
+    coordinate_precision: 6
+    region_mapping: true
+    timezone_mapping: true
+  
+  # Metadata enrichment
+  metadata:
+    enabled: true
+    data_quality_metrics: true
+    business_context: true
+    technical_context: true
+    temporal_context: true

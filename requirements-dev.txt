@@ -1,0 +1,75 @@
+# Development dependencies for 254Carbon Ingestion Layer
+
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Data processing
+pandas>=2.1.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+avro-python3>=1.10.2
+
+# Kafka and messaging
+kafka-python>=2.0.2
+confluent-kafka>=2.3.0
+aiokafka>=0.8.0
+
+# Database connectors
+clickhouse-driver>=0.2.6
+redis>=5.0.0
+sqlalchemy>=2.0.0
+
+# HTTP clients
+httpx>=0.25.0
+aiohttp>=3.9.0
+requests>=2.31.0
+
+# Configuration and validation
+pyyaml>=6.0.1
+jsonschema>=4.20.0
+cerberus>=1.3.4
+
+# Monitoring and observability
+prometheus-client>=0.19.0
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+opentelemetry-instrumentation-kafka-python>=0.41b0
+
+# Logging
+structlog>=23.2.0
+python-json-logger>=2.0.7
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+pytest-xdist>=3.5.0
+factory-boy>=3.3.0
+faker>=20.1.0
+
+# Code quality
+ruff>=0.1.0
+mypy>=1.7.0
+black>=23.11.0
+isort>=5.12.0
+pre-commit>=3.6.0
+
+# Documentation
+sphinx>=7.2.0
+sphinx-rtd-theme>=1.3.0
+
+# Utilities
+python-dotenv>=1.0.0
+click>=8.1.0
+rich>=13.7.0
+typer>=0.9.0
+
+# Development tools
+ipython>=8.17.0
+jupyter>=1.0.0
+notebook>=7.0.0

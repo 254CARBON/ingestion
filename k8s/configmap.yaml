@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: carbon-ingestion-config
+  namespace: carbon-ingestion
+  labels:
+    app.kubernetes.io/name: carbon-ingestion
+    app.kubernetes.io/instance: carbon-ingestion
+    app.kubernetes.io/component: config
+data:
+  # Kafka configuration
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-cluster:9092"
+  SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+  
+  # ClickHouse configuration
+  CLICKHOUSE_DSN: "clickhouse://default@clickhouse:9000/carbon_ingestion"
+  
+  # Redis configuration
+  REDIS_URL: "redis://redis:6379/0"
+  
+  # Service configuration
+  LOG_LEVEL: "INFO"
+  PARALLELISM: "4"
+  
+  # Normalization service
+  NORMALIZATION_RULES_PATH: "/app/configs/normalization_rules.yaml"
+  
+  # Enrichment service
+  ENRICHMENT_TAXONOMY_PATH: "/app/configs/enrichment_taxonomy.yaml"
+  
+  # Aggregation service
+  AGGREGATION_POLICIES_PATH: "/app/configs/aggregation_policies.yaml"
+  
+  # Airflow configuration
+  AIRFLOW__CORE__EXECUTOR: "KubernetesExecutor"
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__KUBERNETES__NAMESPACE: "carbon-ingestion"
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: "ghcr.io/254carbon/ingestion"
+  AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: "latest"
+  
+  # Monitoring configuration
+  PROMETHEUS_METRICS_ENABLED: "true"
+  OPENTELEMETRY_TRACING_ENABLED: "true"
+  
+  # Security configuration
+  ENABLE_CORS: "false"
+  SECRET_KEY: "your-secret-key-here"
+  
+  # Performance configuration
+  MAX_CONCURRENT_REQUESTS: "100"
+  REQUEST_TIMEOUT: "30"
+  BATCH_SIZE: "1000"
+  
+  # Data retention
+  DATA_RETENTION_DAYS: "365"
+  LOG_RETENTION_DAYS: "30"
+  
+  # Health check configuration
+  HEALTH_CHECK_INTERVAL: "30s"
+  HEALTH_CHECK_TIMEOUT: "10s"
+  HEALTH_CHECK_RETRIES: "3"
+  
+  # Resource limits
+  CPU_LIMIT: "1000m"
+  MEMORY_LIMIT: "2Gi"
+  CPU_REQUEST: "500m"
+  MEMORY_REQUEST: "1Gi"

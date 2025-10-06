@@ -1,0 +1,23 @@
+# Connector Registry Service Dependencies
+
+# Core framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# HTTP client
+httpx>=0.25.0
+
+# Configuration
+pyyaml>=6.0.1
+
+# Logging
+structlog>=23.2.0
+
+# Monitoring
+prometheus-client>=0.19.0
+
+# Utilities
+python-dotenv>=1.0.0
+click>=8.1.0

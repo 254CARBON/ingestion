@@ -1,0 +1,68 @@
+# Normalization Rules Configuration
+
+# Market-specific normalization rules
+markets:
+  MISO:
+    market_id: "MISO"
+    timezone: "America/Chicago"
+    currency: "USD"
+    unit: "MWh"
+    price_unit: "$/MWh"
+    field_mappings:
+      settlement_point: "delivery_location"
+      trade_date: "delivery_date"
+      trade_hour: "delivery_hour"
+    transforms:
+      - name: "sanitize_numeric"
+        fields: ["price", "quantity", "bid_price", "offer_price", "clearing_price", "congestion_price", "loss_price"]
+      - name: "standardize_timezone"
+        target_timezone: "UTC"
+      - name: "validate_required_fields"
+        required_fields: ["event_id", "occurred_at", "tenant_id", "schema_version", "producer"]
+  
+  CAISO:
+    market_id: "CAISO"
+    timezone: "America/Los_Angeles"
+    currency: "USD"
+    unit: "MWh"
+    price_unit: "$/MWh"
+    field_mappings:
+      node: "delivery_location"
+      trade_date: "delivery_date"
+      trade_hour: "delivery_hour"
+    transforms:
+      - name: "sanitize_numeric"
+        fields: ["price", "quantity", "bid_price", "offer_price", "clearing_price", "congestion_price", "loss_price"]
+      - name: "standardize_timezone"
+        target_timezone: "UTC"
+      - name: "validate_required_fields"
+        required_fields: ["event_id", "occurred_at", "tenant_id", "schema_version", "producer"]
+
+# Global normalization rules
+global:
+  default_timezone: "UTC"
+  default_currency: "USD"
+  default_unit: "MWh"
+  default_price_unit: "$/MWh"
+  
+  # Quality thresholds
+  quality_thresholds:
+    completeness: 0.95
+    accuracy: 0.90
+    consistency: 0.95
+    timeliness: 0.90
+    validity: 0.95
+  
+  # Validation rules
+  validation:
+    strict_mode: false
+    allow_null_values: true
+    validate_schemas: true
+    check_required_fields: true
+    
+  # Transformation rules
+  transformations:
+    numeric_precision: 6
+    timestamp_format: "microseconds"
+    string_encoding: "utf-8"
+    case_sensitivity: "preserve"

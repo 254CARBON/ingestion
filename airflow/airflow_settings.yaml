@@ -1,0 +1,72 @@
+# Airflow Configuration for 254Carbon Ingestion Platform
+
+# Core settings
+core:
+  dags_folder: /opt/airflow/dags
+  plugins_folder: /opt/airflow/plugins
+  executor: LocalExecutor
+  parallelism: 8
+  max_active_runs_per_dag: 1
+  catchup_by_default: false
+  dag_concurrency: 16
+  max_active_tasks_per_dag: 16
+
+# Database settings
+database:
+  sql_alchemy_conn: postgresql://airflow:airflow@postgres:5432/airflow
+  sql_alchemy_pool_size: 5
+  sql_alchemy_max_overflow: 10
+
+# Web server settings
+webserver:
+  base_url: http://localhost:8080
+  web_server_port: 8080
+  web_server_host: 0.0.0.0
+  authenticate: false
+  expose_config: false
+
+# Scheduler settings
+scheduler:
+  job_heartbeat_sec: 5
+  scheduler_heartbeat_sec: 5
+  catchup_by_default: false
+
+# Logging settings
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  filename_template: "{{ ti.dag_id }}/{{ ti.task_id }}/{{ ts }}/{{ try_number }}.log"
+
+# Email settings
+email:
+  email_backend: airflow.utils.email.send_email_smtp
+  smtp_host: localhost
+  smtp_starttls: true
+  smtp_ssl: false
+  smtp_user: null
+  smtp_password: null
+  smtp_port: 587
+  smtp_mail_from: airflow@254carbon.com
+
+# Security settings
+security:
+  secret_key: "254carbon-ingestion-secret-key"
+  fernet_key: "your-fernet-key-here"
+
+# Connector registry integration
+connector_registry:
+  base_url: "http://connector-registry:8500"
+  timeout: 30
+  retry_attempts: 3
+
+# SeaTunnel integration
+seatunnel:
+  home: "/opt/seatunnel"
+  config_dir: "/opt/seatunnel/jobs"
+  timeout: 3600
+
+# Quality monitoring
+quality_monitoring:
+  enabled: true
+  threshold: 0.95
+  check_interval: 30

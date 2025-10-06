@@ -1,0 +1,188 @@
+{
+  "type": "record",
+  "name": "NormalizedTick",
+  "namespace": "com.254carbon.ingestion.normalized",
+  "doc": "Normalized market tick data after standardization and validation",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier"
+    },
+    {
+      "name": "trace_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Distributed tracing identifier"
+    },
+    {
+      "name": "occurred_at",
+      "type": "long",
+      "doc": "Timestamp in microseconds since epoch"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "doc": "Tenant identifier for multi-tenancy"
+    },
+    {
+      "name": "schema_version",
+      "type": "string",
+      "default": "1.0.0",
+      "doc": "Schema version for evolution tracking"
+    },
+    {
+      "name": "producer",
+      "type": "string",
+      "doc": "Producer identifier"
+    },
+    {
+      "name": "market",
+      "type": "string",
+      "doc": "Market identifier (MISO, CAISO, etc.)"
+    },
+    {
+      "name": "instrument_id",
+      "type": "string",
+      "doc": "Standardized instrument identifier"
+    },
+    {
+      "name": "instrument_type",
+      "type": "string",
+      "doc": "Type of instrument (Energy, Ancillary, etc.)"
+    },
+    {
+      "name": "delivery_location",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Delivery location identifier"
+    },
+    {
+      "name": "delivery_date",
+      "type": "string",
+      "doc": "Delivery date in YYYY-MM-DD format"
+    },
+    {
+      "name": "delivery_hour",
+      "type": "int",
+      "doc": "Delivery hour (0-23)"
+    },
+    {
+      "name": "delivery_period",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Delivery period identifier"
+    },
+    {
+      "name": "price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Trade price in $/MWh"
+    },
+    {
+      "name": "quantity",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Trade quantity in MWh"
+    },
+    {
+      "name": "bid_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Bid price in $/MWh"
+    },
+    {
+      "name": "offer_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Offer price in $/MWh"
+    },
+    {
+      "name": "clearing_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Clearing price in $/MWh"
+    },
+    {
+      "name": "congestion_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Congestion price component in $/MWh"
+    },
+    {
+      "name": "loss_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Loss price component in $/MWh"
+    },
+    {
+      "name": "trade_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Type of trade (DAM, RTM, etc.)"
+    },
+    {
+      "name": "product_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Product type (Energy, Ancillary, etc.)"
+    },
+    {
+      "name": "market_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Market type (Day Ahead, Real Time, etc.)"
+    },
+    {
+      "name": "settlement_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Settlement type (Financial, Physical, etc.)"
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "default": "USD",
+      "doc": "Currency code"
+    },
+    {
+      "name": "unit",
+      "type": "string",
+      "default": "MWh",
+      "doc": "Quantity unit"
+    },
+    {
+      "name": "price_unit",
+      "type": "string",
+      "default": "$/MWh",
+      "doc": "Price unit"
+    },
+    {
+      "name": "quality_flags",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Data quality flags"
+    },
+    {
+      "name": "validation_errors",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Validation error messages"
+    },
+    {
+      "name": "normalization_metadata",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "Metadata about the normalization process"
+    }
+  ]
+}

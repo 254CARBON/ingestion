@@ -1,0 +1,21 @@
+name: miso
+version: 1.2.0
+market: MISO
+mode: batch
+schedule: "0 */1 * * *"
+enabled: true
+output_topic: ingestion.miso.raw.v1
+schema: schemas/raw_miso_trade.avsc
+retries: 3
+backoff_seconds: 30
+tenant_strategy: single
+transforms:
+  - name: sanitize_numeric
+  - name: standardize_timezone
+owner: platform
+description: "MISO market data connector for real-time and historical trading data"
+tags:
+  - market-data
+  - energy
+  - trading
+  - real-time

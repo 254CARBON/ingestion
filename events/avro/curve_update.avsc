@@ -1,0 +1,216 @@
+{
+  "type": "record",
+  "name": "CurveUpdate",
+  "namespace": "com.254carbon.ingestion.pricing",
+  "doc": "Pricing curve update event with aggregated market data",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier"
+    },
+    {
+      "name": "trace_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Distributed tracing identifier"
+    },
+    {
+      "name": "occurred_at",
+      "type": "long",
+      "doc": "Timestamp in microseconds since epoch"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "doc": "Tenant identifier for multi-tenancy"
+    },
+    {
+      "name": "schema_version",
+      "type": "string",
+      "default": "1.0.0",
+      "doc": "Schema version for evolution tracking"
+    },
+    {
+      "name": "producer",
+      "type": "string",
+      "doc": "Producer identifier"
+    },
+    {
+      "name": "curve_id",
+      "type": "string",
+      "doc": "Curve identifier"
+    },
+    {
+      "name": "curve_type",
+      "type": "string",
+      "doc": "Type of curve (Forward, Spot, etc.)"
+    },
+    {
+      "name": "market",
+      "type": "string",
+      "doc": "Market identifier (MISO, CAISO, etc.)"
+    },
+    {
+      "name": "instrument_type",
+      "type": "string",
+      "doc": "Type of instrument (Energy, Ancillary, etc.)"
+    },
+    {
+      "name": "delivery_location",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Delivery location identifier"
+    },
+    {
+      "name": "curve_date",
+      "type": "string",
+      "doc": "Curve date in YYYY-MM-DD format"
+    },
+    {
+      "name": "curve_time",
+      "type": "string",
+      "doc": "Curve time in HH:MM:SS format"
+    },
+    {
+      "name": "curve_period",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Curve period identifier"
+    },
+    {
+      "name": "curve_points",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "CurvePoint",
+          "fields": [
+            {
+              "name": "delivery_date",
+              "type": "string",
+              "doc": "Delivery date in YYYY-MM-DD format"
+            },
+            {
+              "name": "delivery_hour",
+              "type": "int",
+              "doc": "Delivery hour (0-23)"
+            },
+            {
+              "name": "price",
+              "type": ["null", "double"],
+              "default": null,
+              "doc": "Curve price in $/MWh"
+            },
+            {
+              "name": "volume",
+              "type": ["null", "double"],
+              "default": null,
+              "doc": "Volume in MWh"
+            },
+            {
+              "name": "confidence",
+              "type": ["null", "double"],
+              "default": null,
+              "doc": "Confidence score (0-1)"
+            },
+            {
+              "name": "data_points",
+              "type": "int",
+              "doc": "Number of data points used"
+            }
+          ]
+        }
+      },
+      "default": [],
+      "doc": "Curve data points"
+    },
+    {
+      "name": "aggregation_method",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Aggregation method used"
+    },
+    {
+      "name": "aggregation_window",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Aggregation time window"
+    },
+    {
+      "name": "total_volume",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Total volume across all points"
+    },
+    {
+      "name": "average_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Average price across all points"
+    },
+    {
+      "name": "min_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Minimum price across all points"
+    },
+    {
+      "name": "max_price",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Maximum price across all points"
+    },
+    {
+      "name": "price_volatility",
+      "type": ["null", "double"],
+      "default": null,
+      "doc": "Price volatility measure"
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "default": "USD",
+      "doc": "Currency code"
+    },
+    {
+      "name": "unit",
+      "type": "string",
+      "default": "MWh",
+      "doc": "Quantity unit"
+    },
+    {
+      "name": "price_unit",
+      "type": "string",
+      "default": "$/MWh",
+      "doc": "Price unit"
+    },
+    {
+      "name": "quality_flags",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Data quality flags"
+    },
+    {
+      "name": "validation_errors",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Validation error messages"
+    },
+    {
+      "name": "aggregation_metadata",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "Metadata about the aggregation process"
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enrichment-service
+  namespace: carbon-ingestion
+  labels:
+    app.kubernetes.io/name: enrichment-service
+    app.kubernetes.io/instance: enrichment-service
+    app.kubernetes.io/component: service
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: enrichment-service
+      app.kubernetes.io/instance: enrichment-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: enrichment-service
+        app.kubernetes.io/instance: enrichment-service
+        app.kubernetes.io/component: service
+        app.kubernetes.io/version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8511"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: enrichment-service
+        image: ghcr.io/254carbon/ingestion:latest
+        imagePullPolicy: Always
+        command: ["python", "-m", "services.service-enrichment.src.main"]
+        ports:
+        - containerPort: 8511
+          name: http
+          protocol: TCP
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          valueFrom:
+            configMapKeyRef:
+              name: carbon-ingestion-config
+              key: KAFKA_BOOTSTRAP_SERVERS
+        - name: SCHEMA_REGISTRY_URL
+          valueFrom:
+            configMapKeyRef:
+              name: carbon-ingestion-config
+              key: SCHEMA_REGISTRY_URL
+        - name: CLICKHOUSE_DSN
+          valueFrom:
+            configMapKeyRef:
+              name: carbon-ingestion-config
+              key: CLICKHOUSE_DSN
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: carbon-ingestion-config
+              key: REDIS_URL
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: carbon-ingestion-config
+              key: LOG_LEVEL
+        - name: PARALLELISM
+          valueFrom:
+            configMapKeyRef:
+              name: carbon-ingestion-config
+              key: PARALLELISM
+        - name: ENRICHMENT_TAXONOMY_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: carbon-ingestion-config
+              key: ENRICHMENT_TAXONOMY_PATH
+        envFrom:
+        - configMapRef:
+            name: carbon-ingestion-config
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8511
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8511
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/configs
+          readOnly: true
+        - name: connectors-volume
+          mountPath: /app/connectors
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: carbon-ingestion-config
+      - name: connectors-volume
+        configMap:
+          name: connectors-config
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: enrichment-service
+  namespace: carbon-ingestion
+  labels:
+    app.kubernetes.io/name: enrichment-service
+    app.kubernetes.io/instance: enrichment-service
+    app.kubernetes.io/component: service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8511
+    targetPort: 8511
+    protocol: TCP
+    name: http
+  selector:
+    app.kubernetes.io/name: enrichment-service
+    app.kubernetes.io/instance: enrichment-service
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: enrichment-service-hpa
+  namespace: carbon-ingestion
+  labels:
+    app.kubernetes.io/name: enrichment-service
+    app.kubernetes.io/instance: enrichment-service
+    app.kubernetes.io/component: service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: enrichment-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30

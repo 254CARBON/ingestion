@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  # Connector Registry Service
+  connector-registry:
+    build:
+      context: .
+      dockerfile: services/service-connector-registry/Dockerfile
+    hostname: connector-registry
+    container_name: connector-registry
+    ports:
+      - "8500:8500"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./connectors:/app/connectors:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Normalization Service
+  normalization:
+    build:
+      context: .
+      dockerfile: services/service-normalization/Dockerfile
+    hostname: normalization
+    container_name: normalization
+    ports:
+      - "8510:8510"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - CLICKHOUSE_DSN=clickhouse://default@clickhouse:9000/carbon_ingestion
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - PARALLELISM=4
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./configs:/app/configs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8510/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Enrichment Service
+  enrichment:
+    build:
+      context: .
+      dockerfile: services/service-enrichment/Dockerfile
+    hostname: enrichment
+    container_name: enrichment
+    ports:
+      - "8511:8511"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - CLICKHOUSE_DSN=clickhouse://default@clickhouse:9000/carbon_ingestion
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - PARALLELISM=4
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./configs:/app/configs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8511/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Aggregation Service
+  aggregation:
+    build:
+      context: .
+      dockerfile: services/service-aggregation/Dockerfile
+    hostname: aggregation
+    container_name: aggregation
+    ports:
+      - "8512:8512"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - CLICKHOUSE_DSN=clickhouse://default@clickhouse:9000/carbon_ingestion
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - PARALLELISM=4
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./configs:/app/configs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8512/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Projection Service
+  projection:
+    build:
+      context: .
+      dockerfile: services/service-projection/Dockerfile
+    hostname: projection
+    container_name: projection
+    ports:
+      - "8513:8513"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - CLICKHOUSE_DSN=clickhouse://default@clickhouse:9000/carbon_ingestion
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - PARALLELISM=4
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./configs:/app/configs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8513/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: carbon-ingestion-network
+    external: true

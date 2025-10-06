@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: carbon-ingestion
+  labels:
+    name: carbon-ingestion
+    app.kubernetes.io/name: carbon-ingestion
+    app.kubernetes.io/instance: carbon-ingestion
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: ingestion
+    app.kubernetes.io/part-of: 254carbon
+    app.kubernetes.io/managed-by: helm

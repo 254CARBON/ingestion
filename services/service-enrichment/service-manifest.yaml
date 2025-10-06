@@ -1,0 +1,92 @@
+name: enrichment
+version: 1.0.0
+description: "Service for enriching normalized market data with semantic tags and taxonomy"
+owner: platform
+team: ingestion
+
+service:
+  port: 8511
+  health_endpoint: /health
+  metrics_endpoint: /metrics
+  environment: production
+
+dependencies:
+  - name: connectors
+    type: internal
+    description: "Connector framework and implementations"
+  
+  - name: kafka
+    type: external
+    version: ">=2.0.2"
+    description: "Kafka client libraries"
+
+capabilities:
+  - semantic_enrichment
+  - taxonomy_classification
+  - data_tagging
+  - metrics_collection
+
+endpoints:
+  - path: /health
+    methods: [GET]
+    description: "Health check endpoints"
+  
+  - path: /metrics
+    methods: [GET]
+    description: "Metrics collection endpoints"
+
+configuration:
+  kafka_bootstrap_servers:
+    type: string
+    default: "localhost:9092"
+    description: "Kafka bootstrap servers"
+  
+  input_topic:
+    type: string
+    default: "normalized.market.ticks.v1"
+    description: "Input topic"
+  
+  output_topic:
+    type: string
+    default: "enriched.market.ticks.v1"
+    description: "Output topic"
+  
+  parallelism:
+    type: integer
+    default: 4
+    description: "Processing parallelism"
+
+monitoring:
+  metrics:
+    - name: enrichment_records_processed_total
+      type: counter
+      description: "Total number of records enriched"
+    
+    - name: enrichment_latency_seconds_bucket
+      type: histogram
+      description: "Enrichment latency distribution"
+    
+    - name: enrichment_failures_total
+      type: counter
+      description: "Total enrichment failures"
+
+deployment:
+  replicas: 2
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  strategy:
+    type: RollingUpdate
+    maxUnavailable: 1
+    maxSurge: 1
+
+  scaling:
+    min_replicas: 2
+    max_replicas: 10
+    target_cpu_utilization: 70
+    target_memory_utilization: 80
