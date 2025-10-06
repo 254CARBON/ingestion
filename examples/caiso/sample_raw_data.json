@@ -1,0 +1,59 @@
+[
+  {
+    "event_id": "caiso-2024-01-01-12-00-001",
+    "occurred_at": 1704110400000000,
+    "tenant_id": "default",
+    "schema_version": "1.0.0",
+    "producer": "caiso-connector",
+    "market": "CAISO",
+    "node": "TH_SP15_GEN-APND",
+    "lmp_type": "LMP",
+    "price": 45.67,
+    "quantity": 100.0,
+    "market_run_id": "DAM",
+    "interval_start": "2024-01-01T12:00:00Z",
+    "extraction_metadata": {
+      "extraction_time": "2024-01-01T12:05:00Z",
+      "source": "oasis.caiso.com",
+      "version": "1.0.0"
+    }
+  },
+  {
+    "event_id": "caiso-2024-01-01-12-00-002",
+    "occurred_at": 1704110400000000,
+    "tenant_id": "default",
+    "schema_version": "1.0.0",
+    "producer": "caiso-connector",
+    "market": "CAISO",
+    "node": "TH_NP15_GEN-APND",
+    "lmp_type": "LMP",
+    "price": 42.31,
+    "quantity": 100.0,
+    "market_run_id": "DAM",
+    "interval_start": "2024-01-01T12:00:00Z",
+    "extraction_metadata": {
+      "extraction_time": "2024-01-01T12:05:00Z",
+      "source": "oasis.caiso.com",
+      "version": "1.0.0"
+    }
+  },
+  {
+    "event_id": "caiso-2024-01-01-12-00-003",
+    "occurred_at": 1704110400000000,
+    "tenant_id": "default",
+    "schema_version": "1.0.0",
+    "producer": "caiso-connector",
+    "market": "CAISO",
+    "node": "TH_ZP26_GEN-APND",
+    "lmp_type": "LMP",
+    "price": 48.92,
+    "quantity": 100.0,
+    "market_run_id": "DAM",
+    "interval_start": "2024-01-01T12:00:00Z",
+    "extraction_metadata": {
+      "extraction_time": "2024-01-01T12:05:00Z",
+      "source": "oasis.caiso.com",
+      "version": "1.0.0"
+    }
+  }
+]

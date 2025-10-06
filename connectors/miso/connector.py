@@ -74,19 +74,28 @@ class MISOConnector(BaseConnector):
     async def extract(self, **kwargs) -> ExtractionResult:
         """
         Extract data from MISO API.
-        
+
         Args:
             **kwargs: Additional extraction parameters
-            
+
         Returns:
             ExtractionResult: Extracted data and metadata
         """
         try:
-            self.logger.info("Starting MISO data extraction")
-            
-            # Initialize HTTP session
+            mode = kwargs.get("mode", "batch")
+            self.logger.info(f"Starting MISO data extraction in {mode} mode")
+
+            # For batch mode, use the extractor with parameters
+            if mode == "batch" and "start_date" in kwargs and "end_date" in kwargs:
+                return await self._extractor.extract_trades(
+                    start_date=kwargs["start_date"],
+                    end_date=kwargs["end_date"],
+                    settlement_point=kwargs.get("settlement_point")
+                )
+
+            # Initialize HTTP session for real-time or full extraction
             await self._initialize_session()
-            
+
             # Extract different data types
             extracted_data = []
             metadata = {
@@ -95,7 +104,7 @@ class MISOConnector(BaseConnector):
                 "extraction_method": "api_client",
                 "data_types": []
             }
-            
+
             # Extract trade data
             trade_data = await self._extract_trade_data()
             if trade_data:
@@ -143,56 +152,15 @@ class MISOConnector(BaseConnector):
     async def transform(self, extraction_result: ExtractionResult) -> TransformationResult:
         """
         Transform extracted MISO data.
-        
+
         Args:
             extraction_result: Result from the extract operation
-            
+
         Returns:
             TransformationResult: Transformed data and metadata
         """
-        try:
-            self.logger.info("Starting MISO data transformation", 
-                           input_records=extraction_result.record_count)
-            
-            transformed_data = []
-            validation_errors = []
-            
-            for record in extraction_result.data:
-                try:
-                    # Apply MISO-specific transformations
-                    transformed_record = await self._transform_record(record)
-                    transformed_data.append(transformed_record)
-                    
-                except Exception as e:
-                    error_msg = f"Failed to transform record: {str(e)}"
-                    validation_errors.append(error_msg)
-                    self.logger.warning("Record transformation failed", 
-                                      error=error_msg, 
-                                      record_id=record.get("id"))
-            
-            # Create transformation metadata
-            metadata = {
-                **extraction_result.metadata,
-                "transformation_timestamp": datetime.now(timezone.utc).isoformat(),
-                "transformation_method": "miso_specific",
-                "validation_errors": validation_errors,
-                "success_rate": len(transformed_data) / max(1, extraction_result.record_count)
-            }
-            
-            self.logger.info("MISO data transformation completed", 
-                           output_records=len(transformed_data),
-                           validation_errors=len(validation_errors))
-            
-            return TransformationResult(
-                data=transformed_data,
-                metadata=metadata,
-                record_count=len(transformed_data),
-                validation_errors=validation_errors
-            )
-            
-        except Exception as e:
-            self.logger.error("Failed to transform MISO data", error=str(e))
-            raise TransformationError(f"MISO transformation failed: {e}") from e
+        # Use the transformer for transformation
+        return await self._transformer.transform(extraction_result)
     
     async def _initialize_session(self) -> None:
         """Initialize HTTP session for API requests."""
@@ -647,7 +615,8 @@ class MISOConnector(BaseConnector):
         return {
             "schema_versions": ["1.0.0", "1.1.0"],
             "transforms": ["normalize_fields", "validate_schema", "enrich_metadata"],
-            "output_formats": ["avro", "json", "parquet"]
+            "output_formats": ["avro", "json", "parquet"],
+            "config": self.config.dict()
         }
 
     async def run_batch(self, start_date: str, end_date: str) -> bool:

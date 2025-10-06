@@ -1,0 +1,203 @@
+[
+  {
+    "event_id": "caiso-2024-01-01-12-00-001",
+    "occurred_at": 1704110400000000,
+    "tenant_id": "default",
+    "schema_version": "1.0.0",
+    "producer": "caiso-connector",
+    "market": "CAISO",
+    "node": "TH_SP15_GEN-APND",
+    "lmp_type": "LMP",
+    "price": 45.67,
+    "quantity": 100.0,
+    "market_run_id": "DAM",
+    "interval_start": "2024-01-01T12:00:00Z",
+    "extraction_metadata": {
+      "extraction_time": "2024-01-01T12:05:00Z",
+      "source": "oasis.caiso.com",
+      "version": "1.0.0"
+    },
+    "normalization_metadata": {
+      "market": "CAISO",
+      "market_rules_applied": ["standardize_timezone", "sanitize_numeric"],
+      "global_rules_applied": ["validate_required_fields"],
+      "normalization_timestamp": "2024-01-01T12:05:01Z",
+      "source_data_keys": ["event_id", "occurred_at", "tenant_id", "schema_version", "producer", "market", "node", "lmp_type", "price", "quantity", "market_run_id", "interval_start", "extraction_metadata"]
+    },
+    "validation_status": "valid",
+    "validation_errors": [],
+    "quality_score": 1.0,
+    "occurred_at_timezone": "UTC",
+    "market_id": "CAISO",
+    "timezone": "America/Los_Angeles",
+    "currency": "USD",
+    "unit": "MWh",
+    "price_unit": "$/MWh",
+    "enriched_at": "2024-01-01T12:05:02Z",
+    "data_quality_score": 0.95,
+    "geospatial_data": {
+      "latitude": 34.0522,
+      "longitude": -118.2437,
+      "timezone": "America/Los_Angeles",
+      "state": "California",
+      "region": "Southern California",
+      "weather_zone": "SC"
+    },
+    "market_metadata": {
+      "market_type": "energy",
+      "trading_hub": "TH_SP15_GEN-APND",
+      "currency": "USD",
+      "unit_type": "MWh",
+      "price_type": "LMP",
+      "market_run_type": "DAM",
+      "settlement_type": "hourly"
+    },
+    "infrastructure_metadata": {
+      "node_type": "generation",
+      "fuel_type": "mixed",
+      "capacity_mw": 500,
+      "operator": "Southern California Edison",
+      "interconnection": "SP15"
+    },
+    "regulatory_metadata": {
+      "iso": "CAISO",
+      "regulation": "FERC",
+      "compliance_status": "compliant",
+      "reporting_requirements": ["hourly_lmp", "daily_settlement"]
+    }
+  },
+  {
+    "event_id": "caiso-2024-01-01-12-00-002",
+    "occurred_at": 1704110400000000,
+    "tenant_id": "default",
+    "schema_version": "1.0.0",
+    "producer": "caiso-connector",
+    "market": "CAISO",
+    "node": "TH_NP15_GEN-APND",
+    "lmp_type": "LMP",
+    "price": 42.31,
+    "quantity": 100.0,
+    "market_run_id": "DAM",
+    "interval_start": "2024-01-01T12:00:00Z",
+    "extraction_metadata": {
+      "extraction_time": "2024-01-01T12:05:00Z",
+      "source": "oasis.caiso.com",
+      "version": "1.0.0"
+    },
+    "normalization_metadata": {
+      "market": "CAISO",
+      "market_rules_applied": ["standardize_timezone", "sanitize_numeric"],
+      "global_rules_applied": ["validate_required_fields"],
+      "normalization_timestamp": "2024-01-01T12:05:01Z",
+      "source_data_keys": ["event_id", "occurred_at", "tenant_id", "schema_version", "producer", "market", "node", "lmp_type", "price", "quantity", "market_run_id", "interval_start", "extraction_metadata"]
+    },
+    "validation_status": "valid",
+    "validation_errors": [],
+    "quality_score": 1.0,
+    "occurred_at_timezone": "UTC",
+    "market_id": "CAISO",
+    "timezone": "America/Los_Angeles",
+    "currency": "USD",
+    "unit": "MWh",
+    "price_unit": "$/MWh",
+    "enriched_at": "2024-01-01T12:05:02Z",
+    "data_quality_score": 0.93,
+    "geospatial_data": {
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "timezone": "America/Los_Angeles",
+      "state": "California",
+      "region": "Northern California",
+      "weather_zone": "NC"
+    },
+    "market_metadata": {
+      "market_type": "energy",
+      "trading_hub": "TH_NP15_GEN-APND",
+      "currency": "USD",
+      "unit_type": "MWh",
+      "price_type": "LMP",
+      "market_run_type": "DAM",
+      "settlement_type": "hourly"
+    },
+    "infrastructure_metadata": {
+      "node_type": "generation",
+      "fuel_type": "mixed",
+      "capacity_mw": 750,
+      "operator": "Pacific Gas and Electric",
+      "interconnection": "NP15"
+    },
+    "regulatory_metadata": {
+      "iso": "CAISO",
+      "regulation": "FERC",
+      "compliance_status": "compliant",
+      "reporting_requirements": ["hourly_lmp", "daily_settlement"]
+    }
+  },
+  {
+    "event_id": "caiso-2024-01-01-12-00-003",
+    "occurred_at": 1704110400000000,
+    "tenant_id": "default",
+    "schema_version": "1.0.0",
+    "producer": "caiso-connector",
+    "market": "CAISO",
+    "node": "TH_ZP26_GEN-APND",
+    "lmp_type": "LMP",
+    "price": 48.92,
+    "quantity": 100.0,
+    "market_run_id": "DAM",
+    "interval_start": "2024-01-01T12:00:00Z",
+    "extraction_metadata": {
+      "extraction_time": "2024-01-01T12:05:00Z",
+      "source": "oasis.caiso.com",
+      "version": "1.0.0"
+    },
+    "normalization_metadata": {
+      "market": "CAISO",
+      "market_rules_applied": ["standardize_timezone", "sanitize_numeric"],
+      "global_rules_applied": ["validate_required_fields"],
+      "normalization_timestamp": "2024-01-01T12:05:01Z",
+      "source_data_keys": ["event_id", "occurred_at", "tenant_id", "schema_version", "producer", "market", "node", "lmp_type", "price", "quantity", "market_run_id", "interval_start", "extraction_metadata"]
+    },
+    "validation_status": "valid",
+    "validation_errors": [],
+    "quality_score": 1.0,
+    "occurred_at_timezone": "UTC",
+    "market_id": "CAISO",
+    "timezone": "America/Phoenix",
+    "currency": "USD",
+    "unit": "MWh",
+    "price_unit": "$/MWh",
+    "enriched_at": "2024-01-01T12:05:02Z",
+    "data_quality_score": 0.97,
+    "geospatial_data": {
+      "latitude": 33.4484,
+      "longitude": -112.0740,
+      "timezone": "America/Phoenix",
+      "state": "Arizona",
+      "region": "Southwest",
+      "weather_zone": "SW"
+    },
+    "market_metadata": {
+      "market_type": "energy",
+      "trading_hub": "TH_ZP26_GEN-APND",
+      "currency": "USD",
+      "unit_type": "MWh",
+      "price_type": "LMP",
+      "market_run_type": "DAM",
+      "settlement_type": "hourly"
+    },
+    "infrastructure_metadata": {
+      "node_type": "generation",
+      "fuel_type": "mixed",
+      "capacity_mw": 300,
+      "operator": "Arizona Public Service",
+      "interconnection": "ZP26"
+    },
+    "regulatory_metadata": {
+      "iso": "CAISO",
+      "regulation": "FERC",
+      "compliance_status": "compliant",
+      "reporting_requirements": ["hourly_lmp", "daily_settlement"]
+    }
+  }
+]

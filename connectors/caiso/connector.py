@@ -98,7 +98,25 @@ class CAISOConnector(BaseConnector):
         return base_status
 
     def get_metrics(self) -> Dict[str, Any]:
-        return super().get_metrics()
+        base_metrics = super().get_metrics()
+        base_metrics.update({
+            "quality_metrics": self.quality_metrics,
+            "success_rate": (
+                self.quality_metrics["successful_requests"] /
+                max(1, self.quality_metrics["total_requests"])
+            ),
+            "data_extraction_rate": self.quality_metrics["data_points_extracted"]
+        })
+        return base_metrics
+
+    def get_transformation_capabilities(self) -> Dict[str, Any]:
+        """Get transformation capabilities."""
+        return {
+            "schema_versions": ["1.0.0", "1.1.0"],
+            "transforms": ["normalize_fields", "validate_schema", "enrich_metadata"],
+            "output_formats": ["avro", "json", "parquet"],
+            "config": self.config.dict()
+        }
 
     def get_connector_info(self) -> Dict[str, Any]:
         return {

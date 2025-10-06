@@ -165,20 +165,19 @@ class CAISOTransform:
                     transformed_record = record.copy()
                     
                     # Apply numeric sanitization
-                    if self.config.sanitize_numeric:
-                        numeric_fields = [
-                            "price", "quantity", "bid_price", "offer_price",
-                            "clearing_price", "congestion_price", "loss_price"
-                        ]
-                        
-                        for field in numeric_fields:
-                            if field in transformed_record:
-                                transformed_record[field] = self.sanitize_numeric(
-                                    transformed_record[field], field
-                                )
-                    
+                    numeric_fields = [
+                        "price", "quantity", "bid_price", "offer_price",
+                        "clearing_price", "congestion_price", "loss_price"
+                    ]
+
+                    for field in numeric_fields:
+                        if field in transformed_record:
+                            transformed_record[field] = self.sanitize_numeric(
+                                transformed_record[field], field
+                            )
+
                     # Apply timezone standardization
-                    if self.config.standardize_timezone and "occurred_at" in transformed_record:
+                    if "occurred_at" in transformed_record:
                         transformed_record["occurred_at"] = self.standardize_timezone(
                             transformed_record["occurred_at"]
                         )
@@ -208,8 +207,8 @@ class CAISOTransform:
                 "output_record_count": len(transformed_data),
                 "validation_errors_count": len(validation_errors),
                 "transforms_applied": [
-                    "sanitize_numeric" if self.config.sanitize_numeric else None,
-                    "standardize_timezone" if self.config.standardize_timezone else None
+                    "sanitize_numeric",
+                    "standardize_timezone"
                 ]
             }
             

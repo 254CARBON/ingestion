@@ -1,0 +1,102 @@
+# Production CAISO Connector Configuration
+# Optimized for high-volume production environments with monitoring and alerting
+
+name: caiso_production
+version: 1.0.0
+market: CAISO
+mode: hybrid
+schedule: "0 */1 * * *"  # Hourly batch runs
+enabled: true
+output_topic: ingestion.caiso.raw.v1
+schema: schemas/raw_caiso_trade.avsc
+retries: 10
+backoff_seconds: 120
+tenant_strategy: multi
+transforms:
+  - sanitize_numeric
+  - standardize_timezone
+  - validate_required_fields
+  - enrich_metadata
+  - calculate_quality_score
+owner: platform
+description: "Production CAISO connector with comprehensive monitoring and alerting"
+tags:
+  - production
+  - high-volume
+  - monitored
+  - california
+
+# Production Kafka settings
+kafka_bootstrap_servers: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
+schema_registry_url: "http://schema-registry:8081"
+
+# Production CAISO settings
+caiso_base_url: "https://oasis.caiso.com/oasisapi"
+caiso_timeout: 60
+caiso_rate_limit: 300  # Higher limit for production
+caiso_retry_attempts: 8
+caiso_backoff_factor: 3.0
+caiso_user_agent: "254Carbon/1.0 (Production - High Volume)"
+
+# OASIS API settings
+oasis_version: "12"
+oasis_result_format: "6"
+default_market_run_id: "DAM"
+
+# Production node configuration
+default_node: "TH_SP15_GEN-APND"
+primary_nodes:
+  - "TH_SP15_GEN-APND"  # Southern California
+  - "TH_NP15_GEN-APND"  # Northern California
+  - "TH_ZP26_GEN-APND"  # Arizona
+
+backup_nodes:
+  - "TH_SP15_GEN-APND"
+  - "TH_NP15_GEN-APND"
+  - "TH_ZP26_GEN-APND"
+
+# Market run configuration
+market_runs:
+  day_ahead:
+    market_run_id: "DAM"
+    schedule: "0 14 * * *"  # 2 PM daily for next day
+    nodes: ["TH_SP15_GEN-APND", "TH_NP15_GEN-APND", "TH_ZP26_GEN-APND"]
+
+  real_time:
+    market_run_id: "RTM"
+    schedule: "*/15 * * * *"  # Every 15 minutes
+    nodes: ["TH_SP15_GEN-APND"]
+
+# Time window settings
+time_windows:
+  historical_days: 7
+  real_time_minutes: 15
+  overlap_minutes: 2
+
+# Production monitoring
+monitoring:
+  metrics_enabled: true
+  health_check_interval: 30
+  alert_thresholds:
+    error_rate: 0.05  # Alert if >5% errors
+    latency_ms: 10000  # Alert if >10s latency
+    data_gap_minutes: 30  # Alert if data gap >30 min
+
+# Circuit breaker settings
+circuit_breaker:
+  failure_threshold: 5
+  recovery_timeout: 300  # 5 minutes
+  monitoring_window: 60  # 1 minute
+
+# Data retention
+retention:
+  raw_data_days: 30
+  processed_data_days: 365
+  error_logs_days: 90
+
+# Performance optimization
+performance:
+  connection_pool_size: 10
+  max_workers: 4
+  memory_limit_mb: 2048
+  compression_enabled: true

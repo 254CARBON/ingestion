@@ -1,0 +1,35 @@
+# Basic CAISO Connector Configuration
+# This is a minimal configuration for getting started with CAISO data extraction
+
+name: caiso_basic_example
+version: 1.0.0
+market: CAISO
+mode: batch
+schedule: "0 */2 * * *"  # Run every 2 hours
+enabled: true
+output_topic: ingestion.caiso.raw.v1
+schema: schemas/raw_caiso_trade.avsc
+retries: 3
+backoff_seconds: 30
+tenant_strategy: single
+transforms:
+  - sanitize_numeric
+  - standardize_timezone
+owner: platform
+description: "Basic CAISO connector for PRC LMP data extraction"
+tags:
+  - market-data
+  - energy
+  - california
+
+# CAISO specific settings
+caiso_base_url: "https://oasis.caiso.com/oasisapi"
+caiso_timeout: 30
+caiso_rate_limit: 100
+caiso_retry_attempts: 3
+caiso_backoff_factor: 2.0
+caiso_user_agent: "254Carbon/1.0"
+oasis_version: "12"
+oasis_result_format: "6"
+default_market_run_id: "DAM"
+default_node: "TH_SP15_GEN-APND"
