@@ -557,4 +557,8 @@ class RulesEngine:
         """Get rules engine metrics."""
         stats = self.get_stats()
         stats["uptime_seconds"] = 0  # Would need to track start time
+        stats["rules_loaded"] = len(self.rules)
+        stats["rules_applied"] = stats["total_executions"]
+        stats["rules_failed"] = stats["failed_executions"]
+        stats["timestamp"] = datetime.now(timezone.utc).isoformat()
         return stats

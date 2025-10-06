@@ -183,6 +183,9 @@ class CAISOTransform:
                             transformed_record["occurred_at"]
                         )
                     
+                    # Add per-record transformation timestamp required by schema
+                    transformed_record["transformation_timestamp"] = datetime.now(timezone.utc).isoformat()
+
                     # Validate the transformed record
                     record_errors = self.validate_record(transformed_record)
                     if record_errors:

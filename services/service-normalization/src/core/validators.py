@@ -520,6 +520,9 @@ class ValidationService:
         """Get validation service metrics."""
         stats = self.get_stats()
         stats["uptime_seconds"] = 0  # Would need to track start time
+        stats["validation_errors"] = stats["failed_validations"]
+        stats["error_rate"] = stats["failed_validations"] / max(1, stats["total_validations"])
+        stats["timestamp"] = datetime.now(timezone.utc).isoformat()
         return stats
     
     async def get_error_metrics(self) -> Dict[str, Any]:

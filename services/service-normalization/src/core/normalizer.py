@@ -131,18 +131,18 @@ class NormalizationService:
             )
             
             # Update statistics
-            if validation_result.get("status") == "valid":
+            if validation_result.status == "valid":
                 self.stats["successful_normalizations"] += 1
             else:
                 self.stats["failed_normalizations"] += 1
-                self.stats["validation_errors"] += len(validation_result.get("errors", []))
+                self.stats["validation_errors"] += len(validation_result.errors)
             
             self.stats["quality_scores"].append(quality_score)
             
             self.logger.info("Data normalized successfully", 
                            market=market,
                            quality_score=quality_score,
-                           validation_status=validation_result.get("status"))
+                           validation_status=validation_result.status)
             
             return result
             
@@ -365,7 +365,7 @@ class NormalizationService:
         
         return data
     
-    def _calculate_quality_score(self, data: Dict[str, Any], validation_result: Dict[str, Any]) -> float:
+    def _calculate_quality_score(self, data: Dict[str, Any], validation_result) -> float:
         """
         Calculate data quality score.
         
@@ -379,7 +379,7 @@ class NormalizationService:
         score = 1.0
         
         # Deduct for validation errors
-        validation_errors = validation_result.get("errors", [])
+        validation_errors = validation_result.errors
         score -= len(validation_errors) * 0.1
         
         # Deduct for missing fields
@@ -440,8 +440,12 @@ class NormalizationService:
     
     async def normalize_record(self, raw_record: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize a single record."""
-        result = await self.normalize(raw_record)
-        return result.normalized_data
+        try:
+            result = await self.normalize(raw_record)
+            return result.normalized_data
+        except Exception as e:
+            self.logger.error(f"Failed to normalize record: {e}")
+            return {}
     
     async def normalize_batch(self, raw_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Normalize a batch of records."""

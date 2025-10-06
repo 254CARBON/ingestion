@@ -1,311 +1,208 @@
 """
-CAISO data extractor implementation.
+CAISO extractor built on OASIS SingleZip endpoints.
 
-This module provides the CAISO extractor for pulling data from CAISO APIs
-and external data sources.
+Fetches PRC_LMP data and pivots component rows (MCE/MCC/MCL/LMP/MGHG)
+into a single record per interval/node to match the raw_caiso_trade schema.
 """
 
-import asyncio
+from __future__ import annotations
+
 import json
-import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-import httpx
-import structlog
-from pydantic import BaseModel, Field
-
-from ..base import BaseConnector, ExtractionResult
-from ..base.exceptions import ExtractionError, NetworkError, AuthenticationError
-from ..base.utils import setup_logging, retry_with_backoff
-
-
-class CAISOAuthConfig(BaseModel):
-    """CAISO authentication configuration."""
-    
-    api_key: str = Field(..., description="CAISO API key")
-    base_url: str = Field(..., description="CAISO API base URL")
-    timeout: int = Field(30, description="Request timeout in seconds")
-    rate_limit: int = Field(100, description="Requests per minute")
-
-
-class CAISOApiClient:
-    """CAISO API client for data extraction."""
-    
-    def __init__(self, auth_config: CAISOAuthConfig):
-        """
-        Initialize the CAISO API client.
-        
-        Args:
-            auth_config: CAISO authentication configuration
-        """
-        self.auth_config = auth_config
-        self.logger = setup_logging(self.__class__.__name__)
-        self._client: Optional[httpx.AsyncClient] = None
-    
-    async def __aenter__(self):
-        """Async context manager entry."""
-        self._client = httpx.AsyncClient(
-            base_url=self.auth_config.base_url,
-            timeout=self.auth_config.timeout,
-            headers={
-                "Authorization": f"Bearer {self.auth_config.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "254Carbon-Ingestion/1.0"
-            }
-        )
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._client:
-            await self._client.aclose()
-    
-    async def get_trade_data(
-        self,
-        start_date: str,
-        end_date: str,
-        node: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Get CAISO trade data for a date range.
-        
-        Args:
-            start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
-            node: Optional node filter
-            
-        Returns:
-            List[Dict[str, Any]]: Trade data records
-            
-        Raises:
-            ExtractionError: If extraction fails
-        """
-        if not self._client:
-            raise ExtractionError("API client not initialized")
-        
-        try:
-            params = {
-                "startDate": start_date,
-                "endDate": end_date,
-                "format": "json"
-            }
-            
-            if node:
-                params["node"] = node
-            
-            self.logger.info(f"Fetching CAISO trade data: {params}")
-            
-            response = await self._client.get("/api/trade-data", params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if not isinstance(data, list):
-                raise ExtractionError(f"Unexpected response format: {type(data)}")
-            
-            self.logger.info(f"Retrieved {len(data)} trade records")
-            return data
-            
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                raise AuthenticationError(f"CAISO API authentication failed: {e}")
-            elif e.response.status_code == 429:
-                raise ExtractionError(f"CAISO API rate limit exceeded: {e}")
-            else:
-                raise ExtractionError(f"CAISO API error: {e}")
-        except httpx.RequestError as e:
-            raise NetworkError(f"Network error accessing CAISO API: {e}")
-        except Exception as e:
-            raise ExtractionError(f"Unexpected error extracting CAISO data: {e}")
-    
-    async def get_realtime_data(self) -> List[Dict[str, Any]]:
-        """
-        Get CAISO real-time market data.
-        
-        Returns:
-            List[Dict[str, Any]]: Real-time data records
-            
-        Raises:
-            ExtractionError: If extraction fails
-        """
-        if not self._client:
-            raise ExtractionError("API client not initialized")
-        
-        try:
-            self.logger.info("Fetching CAISO real-time data")
-            
-            response = await self._client.get("/api/realtime-data")
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if not isinstance(data, list):
-                raise ExtractionError(f"Unexpected response format: {type(data)}")
-            
-            self.logger.info(f"Retrieved {len(data)} real-time records")
-            return data
-            
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                raise AuthenticationError(f"CAISO API authentication failed: {e}")
-            elif e.response.status_code == 429:
-                raise ExtractionError(f"CAISO API rate limit exceeded: {e}")
-            else:
-                raise ExtractionError(f"CAISO API error: {e}")
-        except httpx.RequestError as e:
-            raise NetworkError(f"Network error accessing CAISO API: {e}")
-        except Exception as e:
-            raise ExtractionError(f"Unexpected error extracting CAISO real-time data: {e}")
+from ..base import ExtractionResult
+from ..base.exceptions import ExtractionError
+from ..base.utils import setup_logging
+from .config import CAISOConnectorConfig
+from .oasis_client import OASISClient, OASISClientConfig
 
 
 class CAISOExtractor:
-    """CAISO data extractor."""
-    
-    def __init__(self, auth_config: CAISOAuthConfig):
-        """
-        Initialize the CAISO extractor.
-        
-        Args:
-            auth_config: CAISO authentication configuration
-        """
-        self.auth_config = auth_config
+    """CAISO data extractor using OASIS SingleZip CSV."""
+
+    def __init__(self, config: CAISOConnectorConfig):
+        self.config = config
         self.logger = setup_logging(self.__class__.__name__)
-    
-    async def extract_trades(
+        self._client = OASISClient(
+            OASISClientConfig(
+                base_url=getattr(config, "caiso_base_url", "https://oasis.caiso.com/oasisapi"),
+                timeout=getattr(config, "caiso_timeout", 30),
+                user_agent=getattr(config, "caiso_user_agent", "254Carbon/1.0"),
+            )
+        )
+
+    @staticmethod
+    def _format_oasis_dt(dt_like: Any) -> str:
+        """Format input to OASIS datetime string YYYYMMDDThh:mm-0000 (UTC)."""
+        if isinstance(dt_like, str):
+            # Assume caller passed correct string; minimal validation here
+            return dt_like
+        if isinstance(dt_like, datetime):
+            dt_utc = dt_like.astimezone(timezone.utc)
+            return dt_utc.strftime("%Y%m%dT%H:%M-0000")
+        raise ValueError("start/end must be datetime or OASIS-formatted string")
+
+    @staticmethod
+    def _parse_float(row: Dict[str, str], keys: List[str]) -> Optional[float]:
+        for k in keys:
+            if k in row and row[k] not in (None, ""):
+                try:
+                    return float(str(row[k]).strip())
+                except ValueError:
+                    continue
+        return None
+
+    @staticmethod
+    def _parse_int(row: Dict[str, str], key: str) -> Optional[int]:
+        v = row.get(key)
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _to_epoch_us(ts_gmt: str) -> int:
+        # ts like 2025-01-01T00:00:00-00:00
+        dt = datetime.strptime(ts_gmt.replace("-00:00", "+00:00"), "%Y-%m-%dT%H:%M:%S%z")
+        return int(dt.timestamp() * 1_000_000)
+
+    async def extract_prc_lmp(
         self,
-        start_date: str,
-        end_date: str,
-        node: Optional[str] = None
+        *,
+        start: Any,
+        end: Any,
+        market_run_id: str,
+        node: str,
+        version: str = "12",
     ) -> ExtractionResult:
-        """
-        Extract CAISO trade data.
-        
-        Args:
-            start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
-            node: Optional node filter
-            
-        Returns:
-            ExtractionResult: Extracted data and metadata
-        """
+        """Extract PRC_LMP for a time window and node, pivoted per interval."""
+        start_str = self._format_oasis_dt(start)
+        end_str = self._format_oasis_dt(end)
+
         try:
-            async with CAISOApiClient(self.auth_config) as client:
-                raw_data = await client.get_trade_data(
-                    start_date, end_date, node
-                )
-            
-            # Transform raw data into standardized format
-            processed_data = []
-            for record in raw_data:
-                processed_record = {
-                    "event_id": str(uuid4()),
-                    "trace_id": None,
-                    "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
-                    "tenant_id": "default",
-                    "schema_version": "1.0.0",
-                    "producer": "caiso-connector",
-                    "trade_id": record.get("tradeId"),
-                    "node": record.get("node"),
-                    "hub": record.get("hub"),
-                    "price": record.get("price"),
-                    "quantity": record.get("quantity"),
-                    "trade_date": record.get("tradeDate"),
-                    "trade_hour": record.get("tradeHour"),
-                    "trade_type": record.get("tradeType"),
-                    "product_type": record.get("productType"),
-                    "delivery_date": record.get("deliveryDate"),
-                    "delivery_hour": record.get("deliveryHour"),
-                    "bid_price": record.get("bidPrice"),
-                    "offer_price": record.get("offerPrice"),
-                    "clearing_price": record.get("clearingPrice"),
-                    "congestion_price": record.get("congestionPrice"),
-                    "loss_price": record.get("lossPrice"),
-                    "raw_data": json.dumps(record),
-                    "extraction_metadata": {
-                        "extraction_time": datetime.now(timezone.utc).isoformat(),
-                        "source": "caiso-api",
-                        "version": "1.0.0"
-                    }
-                }
-                processed_data.append(processed_record)
-            
+            rows = await self._client.fetch_prc_lmp_csv(
+                startdatetime=start_str,
+                enddatetime=end_str,
+                market_run_id=market_run_id,
+                node=node,
+                version=version,
+            )
+        except Exception as e:
+            raise ExtractionError(f"OASIS fetch failed: {e}") from e
+        finally:
+            await self._client.aclose()
+
+        if not rows:
             return ExtractionResult(
-                data=processed_data,
+                data=[],
                 metadata={
-                    "start_date": start_date,
-                    "end_date": end_date,
+                    "query": {
+                        "start": start_str,
+                        "end": end_str,
+                        "market_run_id": market_run_id,
+                        "node": node,
+                        "version": version,
+                    },
+                    "source": "oasis-singlezip",
+                },
+                record_count=0,
+            )
+
+        # Group rows by interval/node/run
+        groups: Dict[tuple[str, str, str, str], List[Dict[str, str]]] = {}
+        for r in rows:
+            key = (
+                r.get("INTERVALSTARTTIME_GMT") or r.get("INTERVAL_START_GMT") or "",
+                r.get("INTERVALENDTIME_GMT") or r.get("INTERVAL_END_GMT") or "",
+                r.get("NODE") or r.get("RESOURCE_NAME") or "",
+                r.get("MARKET_RUN_ID") or "",
+            )
+            groups.setdefault(key, []).append(r)
+
+        processed: List[Dict[str, Any]] = []
+        for (start_gmt, end_gmt, node_name, run_id), group_rows in groups.items():
+            # Seed values
+            lmp = None
+            mce = None
+            mcc = None
+            mcl = None
+            ghg = None
+
+            for r in group_rows:
+                lmp_type = (r.get("LMP_TYPE") or r.get("DATA_ITEM") or "").upper()
+                value = self._parse_float(r, ["MW", "VALUE"])  # header varies; VALUE is typical
+                if lmp_type in ("LMP", "LMP_PRC"):
+                    lmp = value
+                elif lmp_type in ("MCE", "LMP_ENE_PRC"):
+                    mce = value
+                elif lmp_type in ("MCC", "LMP_CONG_PRC"):
+                    mcc = value
+                elif lmp_type in ("MCL", "LMP_LOSS_PRC"):
+                    mcl = value
+                elif lmp_type in ("MGHG", "LMP_GHG_PRC"):
+                    ghg = value
+
+            opr_dt = None
+            opr_hr = None
+            # Pick any row to source OPR_DT/OPR_HR
+            sample = group_rows[0]
+            if sample:
+                opr_dt = sample.get("OPR_DT")
+                opr_hr = self._parse_int(sample, "OPR_HR")
+
+            record = {
+                "event_id": str(uuid4()),
+                "trace_id": "",
+                "occurred_at": self._to_epoch_us(end_gmt) if end_gmt else int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                "tenant_id": "default",
+                "schema_version": "1.0.0",
+                "producer": "caiso-connector",
+                "market": "CAISO",
+                "market_id": "CAISO",
+                "timezone": "UTC",
+                "currency": "USD",
+                "unit": "MWh",
+                "price_unit": "$/MWh",
+                "data_type": "market_price",
+                "source": "caiso-oasis",
+                # Trade-like fields aligned to schema
+                "trade_id": None,
+                "delivery_location": node_name or None,
+                "delivery_date": opr_dt,
+                "delivery_hour": opr_hr,
+                # Price fields (pivoted)
+                "price": lmp,
+                "quantity": None,
+                "bid_price": None,
+                "offer_price": None,
+                "clearing_price": mce,
+                "congestion_price": mcc,
+                "loss_price": mcl,
+                "curve_type": None,
+                "price_type": None,
+                "status_type": None,
+                "status_value": None,
+                "timestamp": end_gmt or start_gmt,
+                "raw_data": json.dumps(group_rows),
+                # transformation_timestamp will be added in transform step
+            }
+            processed.append(record)
+
+        return ExtractionResult(
+            data=processed,
+            metadata={
+                "query": {
+                    "start": start_str,
+                    "end": end_str,
+                    "market_run_id": market_run_id,
                     "node": node,
-                    "extraction_time": datetime.now(timezone.utc).isoformat(),
-                    "source": "caiso-api",
-                    "version": "1.0.0"
+                    "version": version,
                 },
-                record_count=len(processed_data)
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Failed to extract CAISO trade data: {e}")
-            raise ExtractionError(f"CAISO trade data extraction failed: {e}") from e
-    
-    async def extract_realtime(self) -> ExtractionResult:
-        """
-        Extract CAISO real-time data.
-        
-        Returns:
-            ExtractionResult: Extracted data and metadata
-        """
-        try:
-            async with CAISOApiClient(self.auth_config) as client:
-                raw_data = await client.get_realtime_data()
-            
-            # Transform raw data into standardized format
-            processed_data = []
-            for record in raw_data:
-                processed_record = {
-                    "event_id": str(uuid4()),
-                    "trace_id": None,
-                    "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
-                    "tenant_id": "default",
-                    "schema_version": "1.0.0",
-                    "producer": "caiso-connector",
-                    "trade_id": record.get("tradeId"),
-                    "node": record.get("node"),
-                    "hub": record.get("hub"),
-                    "price": record.get("price"),
-                    "quantity": record.get("quantity"),
-                    "trade_date": record.get("tradeDate"),
-                    "trade_hour": record.get("tradeHour"),
-                    "trade_type": record.get("tradeType"),
-                    "product_type": record.get("productType"),
-                    "delivery_date": record.get("deliveryDate"),
-                    "delivery_hour": record.get("deliveryHour"),
-                    "bid_price": record.get("bidPrice"),
-                    "offer_price": record.get("offerPrice"),
-                    "clearing_price": record.get("clearingPrice"),
-                    "congestion_price": record.get("congestionPrice"),
-                    "loss_price": record.get("lossPrice"),
-                    "raw_data": json.dumps(record),
-                    "extraction_metadata": {
-                        "extraction_time": datetime.now(timezone.utc).isoformat(),
-                        "source": "caiso-api",
-                        "version": "1.0.0",
-                        "mode": "realtime"
-                    }
-                }
-                processed_data.append(processed_record)
-            
-            return ExtractionResult(
-                data=processed_data,
-                metadata={
-                    "extraction_time": datetime.now(timezone.utc).isoformat(),
-                    "source": "caiso-api",
-                    "version": "1.0.0",
-                    "mode": "realtime"
-                },
-                record_count=len(processed_data)
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Failed to extract CAISO real-time data: {e}")
-            raise ExtractionError(f"CAISO real-time data extraction failed: {e}") from e
+                "source": "oasis-singlezip",
+                "records": len(processed),
+            },
+            record_count=len(processed),
+        )
+

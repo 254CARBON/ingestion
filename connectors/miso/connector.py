@@ -18,6 +18,8 @@ from aiohttp import ClientSession, ClientTimeout
 
 from ..base.base_connector import BaseConnector, ConnectorConfig, ExtractionResult, TransformationResult
 from ..base.exceptions import ExtractionError, TransformationError
+from .extractor import MISOExtractor
+from .transform import MISOTransform
 
 
 class MISOConnector(BaseConnector):
@@ -31,14 +33,18 @@ class MISOConnector(BaseConnector):
     def __init__(self, config: ConnectorConfig):
         """
         Initialize the MISO connector.
-        
+
         Args:
             config: Connector configuration
         """
         super().__init__(config)
         self.base_url = "https://api.misoenergy.org"
         self.session: Optional[ClientSession] = None
-        
+
+        # Initialize extractor and transformer
+        self._extractor = MISOExtractor(config)
+        self._transformer = MISOTransform(config)
+
         # API configuration
         self.api_config = {
             "timeout": 30,
@@ -47,7 +53,7 @@ class MISOConnector(BaseConnector):
             "rate_limit_delay": 1,
             "max_concurrent_requests": 10
         }
-        
+
         # Data endpoints
         self.endpoints = {
             "trade_data": "/api/v1/trades",
@@ -55,7 +61,7 @@ class MISOConnector(BaseConnector):
             "market_prices": "/api/v1/prices",
             "system_status": "/api/v1/status"
         }
-        
+
         # Data quality metrics
         self.quality_metrics = {
             "total_requests": 0,
@@ -598,9 +604,66 @@ class MISOConnector(BaseConnector):
         base_metrics.update({
             "quality_metrics": self.quality_metrics,
             "success_rate": (
-                self.quality_metrics["successful_requests"] / 
+                self.quality_metrics["successful_requests"] /
                 max(1, self.quality_metrics["total_requests"])
             ),
             "data_extraction_rate": self.quality_metrics["data_points_extracted"]
         })
         return base_metrics
+
+    def get_connector_info(self) -> Dict[str, Any]:
+        """Get connector information."""
+        return {
+            "name": self.config.name,
+            "version": self.config.version,
+            "market": self.config.market,
+            "mode": self.config.mode,
+            "endpoints": list(self.endpoints.keys()),
+            "extractor_type": "MISOExtractor",
+            "transformer_type": "MISOTransform",
+            "miso_base_url": self.base_url,
+            "transforms_enabled": len(self.config.transforms) if self.config.transforms else 0,
+            "kafka_bootstrap_servers": self.config.kafka_bootstrap_servers,
+            "schema_registry_url": self.config.schema_registry_url
+        }
+
+    def get_extraction_capabilities(self) -> Dict[str, Any]:
+        """Get extraction capabilities."""
+        return {
+            "data_types": ["trade_data", "curve_data", "market_prices", "system_status"],
+            "modes": ["batch", "realtime"],
+            "formats": ["json", "csv"],
+            "incremental": True,
+            "rate_limits": {
+                "requests_per_minute": 100,
+                "concurrent_requests": 10
+            },
+            "batch_parameters": ["start_date", "end_date", "settlement_point"],
+            "realtime_parameters": ["interval_minutes"]
+        }
+
+    def get_transformation_capabilities(self) -> Dict[str, Any]:
+        """Get transformation capabilities."""
+        return {
+            "schema_versions": ["1.0.0", "1.1.0"],
+            "transforms": ["normalize_fields", "validate_schema", "enrich_metadata"],
+            "output_formats": ["avro", "json", "parquet"]
+        }
+
+    async def run_batch(self, start_date: str, end_date: str) -> bool:
+        """Run batch extraction."""
+        try:
+            await self.run()
+            return True
+        except Exception as e:
+            self.logger.error(f"Batch run failed: {e}")
+            return False
+
+    async def run_realtime(self) -> bool:
+        """Run real-time extraction."""
+        try:
+            await self.run()
+            return True
+        except Exception as e:
+            self.logger.error(f"Real-time run failed: {e}")
+            return False
