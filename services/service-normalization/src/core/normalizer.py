@@ -125,8 +125,8 @@ class NormalizationService:
                     "normalization_timestamp": datetime.now(timezone.utc).isoformat(),
                     "source_data_keys": list(raw_data.keys())
                 },
-                validation_status=validation_result.get("status", "unknown"),
-                validation_errors=validation_result.get("errors", []),
+                validation_status=validation_result.status,
+                validation_errors=validation_result.errors,
                 quality_score=quality_score
             )
             
