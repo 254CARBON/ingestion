@@ -380,3 +380,4 @@ class KafkaProducerService:
             "rolling_published": 0,
             "curve_published": 0
         }
+

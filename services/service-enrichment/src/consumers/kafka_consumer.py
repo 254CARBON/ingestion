@@ -247,3 +247,4 @@ class KafkaConsumerService:
             "last_message_time": None,
             "processing_latency_ms": []
         }
+

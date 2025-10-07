@@ -259,3 +259,4 @@ def shutdown_observability() -> None:
     if _observability_manager:
         _observability_manager.shutdown()
         _observability_manager = None
+

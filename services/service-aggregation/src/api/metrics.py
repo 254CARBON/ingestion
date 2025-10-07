@@ -183,3 +183,4 @@ async def get_stats():
     except Exception as e:
         logger.error(f"Failed to get statistics: {e}")
         raise HTTPException(status_code=500, detail="Failed to get statistics")
+

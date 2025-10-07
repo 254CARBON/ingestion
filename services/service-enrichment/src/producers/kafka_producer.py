@@ -263,3 +263,4 @@ class KafkaProducerService:
             "last_publish_time": None,
             "publish_latency_ms": []
         }
+

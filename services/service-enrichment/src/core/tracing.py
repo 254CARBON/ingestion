@@ -342,3 +342,4 @@ def init_kafka_tracing() -> None:
         logging.getLogger(__name__).info("Kafka tracing instrumentation initialized")
     except Exception as e:
         logging.getLogger(__name__).error(f"Failed to initialize Kafka tracing: {e}")
+
