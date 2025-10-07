@@ -1,0 +1,170 @@
+# Data Quality Rules Configuration
+
+# Anomaly detection settings
+anomaly_detection:
+  # Price spike detection
+  price_spike_threshold: 3.0  # Standard deviations
+  price_spike_severity_high: 4.0  # Z-score for high severity
+  price_spike_severity_critical: 5.0  # Z-score for critical severity
+
+  # Volume anomaly detection
+  volume_spike_threshold: 3.0  # Standard deviations
+  volume_spike_severity_high: 4.0  # Z-score for high severity
+
+  # Missing data detection
+  missing_data_window_minutes: 30  # Alert if no data for 30 minutes
+  missing_data_severity: "medium"
+
+  # Outlier detection
+  outlier_threshold: 2.5  # Standard deviations
+  outlier_method: "iqr"  # IQR or z-score
+
+  # Duplicate detection
+  duplicate_window_seconds: 60  # Window for duplicate detection
+  duplicate_severity: "low"
+
+  # Minimum samples for statistical detection
+  min_samples_for_detection: 10
+
+  # Buffer sizes for historical data
+  price_buffer_size: 100
+  volume_buffer_size: 100
+
+# Market-specific quality rules
+markets:
+  CAISO:
+    price_ranges:
+      min: -100  # Allow negative prices
+      max: 2000  # CAISO price cap
+      warning_threshold: 1500
+
+    quantity_ranges:
+      min: 0
+      max: 10000
+      warning_threshold: 5000
+
+    required_fields:
+      - market
+      - delivery_location
+      - delivery_date
+      - delivery_hour
+      - price
+
+    data_freshness_minutes: 15  # Alert if data older than 15 minutes
+
+  MISO:
+    price_ranges:
+      min: -50
+      max: 1000  # MISO price cap
+      warning_threshold: 800
+
+    quantity_ranges:
+      min: 0
+      max: 8000
+      warning_threshold: 6000
+
+    required_fields:
+      - market
+      - delivery_location
+      - delivery_date
+      - delivery_hour
+      - price
+      - quantity
+
+    data_freshness_minutes: 15
+
+# Quality score thresholds
+quality_thresholds:
+  critical: 0.5  # Below this is critical
+  warning: 0.7  # Below this is warning
+  good: 0.9  # Above this is good
+
+# Validation rules
+validation:
+  # Field-level validation
+  field_validation:
+    price:
+      type: "numeric"
+      required: true
+      min: -1000
+      max: 10000
+
+    quantity:
+      type: "numeric"
+      required: false
+      min: 0
+      max: 100000
+
+    delivery_hour:
+      type: "integer"
+      required: true
+      min: 1
+      max: 24
+
+    delivery_date:
+      type: "string"
+      required: true
+      format: "YYYY-MM-DD"
+
+  # Cross-field validation
+  cross_field_validation:
+    - name: "price_quantity_consistency"
+      condition: "if price > 0 then quantity must be present"
+      severity: "warning"
+
+    - name: "clearing_price_consistency"
+      condition: "clearing_price should be close to price"
+      tolerance: 0.01
+      severity: "warning"
+
+# Alerting configuration
+alerting:
+  # Alert on high anomaly rate
+  high_anomaly_rate:
+    enabled: true
+    threshold: 0.1  # 10% anomaly rate
+    window_minutes: 60
+    severity: "high"
+
+  # Alert on low quality score
+  low_quality_score:
+    enabled: true
+    threshold: 0.7
+    window_minutes: 30
+    severity: "medium"
+
+  # Alert on missing data
+  missing_data:
+    enabled: true
+    threshold_minutes: 30
+    severity: "high"
+
+  # Alert on validation errors
+  validation_errors:
+    enabled: true
+    threshold_count: 10
+    window_minutes: 15
+    severity: "medium"
+
+# Monitoring settings
+monitoring:
+  # Metrics collection interval
+  metrics_interval_seconds: 60
+
+  # Retention settings
+  anomaly_retention_hours: 168  # 7 days
+  quality_score_retention_hours: 720  # 30 days
+
+  # Reporting settings
+  daily_report_enabled: true
+  daily_report_time: "08:00"  # UTC
+
+# Feature flags
+features:
+  enable_price_spike_detection: true
+  enable_volume_anomaly_detection: true
+  enable_missing_data_detection: true
+  enable_schema_drift_detection: true
+  enable_duplicate_detection: true
+  enable_outlier_detection: true
+  enable_validation_error_detection: true

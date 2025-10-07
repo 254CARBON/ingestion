@@ -1,0 +1,120 @@
+name: data-quality
+version: 1.0.0
+description: "Service for monitoring data quality and detecting anomalies in market data"
+owner: platform
+team: ingestion
+
+service:
+  port: 8514
+  health_endpoint: /health
+  metrics_endpoint: /metrics
+  environment: production
+
+dependencies:
+  - name: normalization-service
+    type: internal
+    description: "Normalization service for input data"
+
+  - name: enrichment-service
+    type: internal
+    description: "Enrichment service for input data"
+
+  - name: kafka
+    type: external
+    version: ">=2.0.2"
+    description: "Kafka client libraries"
+
+capabilities:
+  - anomaly_detection
+  - quality_scoring
+  - validation_monitoring
+  - alert_generation
+  - metrics_collection
+
+endpoints:
+  - path: /health
+    methods: [GET]
+    description: "Health check endpoints"
+
+  - path: /metrics
+    methods: [GET]
+    description: "Metrics collection endpoints"
+
+  - path: /anomalies
+    methods: [GET]
+    description: "Query detected anomalies"
+
+  - path: /quality/scores
+    methods: [GET]
+    description: "Query quality scores over time"
+
+  - path: /quality/report
+    methods: [GET]
+    description: "Generate quality report for time range"
+
+configuration:
+  kafka_bootstrap_servers:
+    type: string
+    default: "localhost:9092"
+    description: "Kafka bootstrap servers"
+
+  input_topics:
+    type: array
+    default:
+      - "normalized.market.ticks.v1"
+      - "enriched.market.ticks.v1"
+    description: "Input topics to monitor"
+
+  output_topic:
+    type: string
+    default: "data.quality.anomalies.v1"
+    description: "Output topic for anomalies"
+
+  detection_config:
+    type: string
+    default: "configs/data_quality_rules.yaml"
+    description: "Path to data quality detection rules"
+
+monitoring:
+  metrics:
+    - name: dq_anomalies_detected_total
+      type: counter
+      description: "Total number of anomalies detected"
+
+    - name: dq_quality_score_avg
+      type: gauge
+      description: "Average quality score"
+
+    - name: dq_validation_errors_total
+      type: counter
+      description: "Total validation errors detected"
+
+  tracing:
+    enabled: true
+    service_name: "data-quality-service"
+    sampling_rate: 0.1
+
+logging:
+  level: INFO
+  format: json
+  structured: true
+
+deployment:
+  replicas: 2
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "400m"
+
+  health_checks:
+    readiness:
+      path: /health
+      initial_delay_seconds: 20
+      period_seconds: 10
+    liveness:
+      path: /health
+      initial_delay_seconds: 40
+      period_seconds: 30

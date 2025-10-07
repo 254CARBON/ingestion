@@ -365,33 +365,224 @@ class NormalizationService:
         
         return data
     
+    def _calculate_completeness(self, data: Dict[str, Any]) -> float:
+        """
+        Calculate data completeness score.
+
+        Args:
+            data: Normalized data
+
+        Returns:
+            float: Completeness score between 0.0 and 1.0
+        """
+        # Define required fields for each data type
+        required_fields = {
+            "market_price": ["market", "delivery_location", "delivery_date", "delivery_hour", "price"],
+            "trade": ["market", "delivery_location", "delivery_date", "delivery_hour", "price", "quantity"],
+            "curve": ["market", "curve_type", "delivery_date", "delivery_hour", "price"],
+            "system_status": ["market", "delivery_location", "timestamp", "status_type"]
+        }
+
+        data_type = data.get("data_type", "unknown")
+        required = required_fields.get(data_type, ["market", "delivery_location", "price"])
+
+        present_fields = sum(1 for field in required if field in data and data[field] is not None)
+        return present_fields / len(required) if required else 1.0
+
+    def _calculate_accuracy(self, data: Dict[str, Any]) -> float:
+        """
+        Calculate data accuracy score.
+
+        Args:
+            data: Normalized data
+
+        Returns:
+            float: Accuracy score between 0.0 and 1.0
+        """
+        score = 1.0
+
+        # Check price ranges
+        if "price" in data and data["price"] is not None:
+            price = float(data["price"])
+            if price < 0 or price > 1000:
+                score -= 0.2
+            elif price < 10 or price > 500:
+                score -= 0.1
+
+        # Check quantity ranges
+        if "quantity" in data and data["quantity"] is not None:
+            quantity = float(data["quantity"])
+            if quantity < 0 or quantity > 10000:
+                score -= 0.2
+            elif quantity < 10 or quantity > 5000:
+                score -= 0.1
+
+        # Check timestamp validity
+        if "occurred_at" in data and data["occurred_at"] is not None:
+            try:
+                timestamp = int(data["occurred_at"])
+                if timestamp <= 0 or timestamp > int(datetime.now(timezone.utc).timestamp() * 1_000_000) * 2:
+                    score -= 0.15
+            except (ValueError, TypeError):
+                score -= 0.15
+
+        return max(0.0, score)
+
+    def _calculate_consistency(self, data: Dict[str, Any]) -> float:
+        """
+        Calculate data consistency score.
+
+        Args:
+            data: Normalized data
+
+        Returns:
+            float: Consistency score between 0.0 and 1.0
+        """
+        score = 1.0
+
+        # Check data type consistency
+        data_type = data.get("data_type")
+        if data_type:
+            # Market-specific consistency checks
+            market = data.get("market", "").upper()
+            if market == "CAISO":
+                if data_type == "market_price" and "clearing_price" not in data:
+                    score -= 0.1
+            elif market == "MISO":
+                if data_type == "trade" and "bid_price" not in data:
+                    score -= 0.1
+
+        # Check field type consistency
+        numeric_fields = ["price", "quantity", "bid_price", "offer_price", "clearing_price", "congestion_price", "loss_price"]
+        for field in numeric_fields:
+            if field in data and data[field] is not None:
+                try:
+                    float(data[field])
+                except (ValueError, TypeError):
+                    score -= 0.1
+
+        # Check string field consistency
+        string_fields = ["market", "delivery_location", "delivery_date", "currency", "unit"]
+        for field in string_fields:
+            if field in data and data[field] is not None and not isinstance(data[field], str):
+                score -= 0.05
+
+        return max(0.0, score)
+
+    def _calculate_timeliness(self, data: Dict[str, Any]) -> float:
+        """
+        Calculate data timeliness score.
+
+        Args:
+            data: Normalized data
+
+        Returns:
+            float: Timeliness score between 0.0 and 1.0
+        """
+        if "occurred_at" not in data or data["occurred_at"] is None:
+            return 0.5  # Neutral score if timestamp missing
+
+        try:
+            timestamp = int(data["occurred_at"])
+            current_time = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+            age_seconds = (current_time - timestamp) / 1_000_000
+
+            # Score based on age
+            if age_seconds < 3600:  # Less than 1 hour
+                return 1.0
+            elif age_seconds < 86400:  # Less than 1 day
+                return 0.9
+            elif age_seconds < 604800:  # Less than 1 week
+                return 0.7
+            elif age_seconds < 2592000:  # Less than 1 month
+                return 0.5
+            else:  # Older than 1 month
+                return 0.3
+
+        except (ValueError, TypeError):
+            return 0.5  # Neutral score if timestamp invalid
+
+    def _calculate_validity(self, data: Dict[str, Any]) -> float:
+        """
+        Calculate data validity score.
+
+        Args:
+            data: Normalized data
+
+        Returns:
+            float: Validity score between 0.0 and 1.0
+        """
+        score = 1.0
+
+        # Check required envelope fields
+        required_envelope = ["event_id", "occurred_at", "tenant_id", "schema_version", "producer"]
+        for field in required_envelope:
+            if field not in data or data[field] is None:
+                score -= 0.2
+
+        # Check market-specific required fields
+        market = data.get("market", "").upper()
+        if market == "CAISO":
+            required_caiso = ["delivery_location", "delivery_date", "price"]
+            for field in required_caiso:
+                if field not in data or data[field] is None:
+                    score -= 0.1
+        elif market == "MISO":
+            required_miso = ["delivery_location", "delivery_date", "price", "quantity"]
+            for field in required_miso:
+                if field not in data or data[field] is None:
+                    score -= 0.1
+
+        # Check data type validity
+        data_type = data.get("data_type")
+        if data_type and data_type not in ["market_price", "trade", "curve", "system_status"]:
+            score -= 0.1
+
+        return max(0.0, score)
+
     def _calculate_quality_score(self, data: Dict[str, Any], validation_result) -> float:
         """
-        Calculate data quality score.
-        
+        Calculate overall data quality score.
+
         Args:
             data: Normalized data
             validation_result: Validation result
-            
+
         Returns:
             float: Quality score between 0.0 and 1.0
         """
-        score = 1.0
-        
+        # Calculate individual quality dimensions
+        completeness = self._calculate_completeness(data)
+        accuracy = self._calculate_accuracy(data)
+        consistency = self._calculate_consistency(data)
+        timeliness = self._calculate_timeliness(data)
+        validity = self._calculate_validity(data)
+
+        # Weighted average of quality dimensions
+        weights = {
+            "completeness": 0.25,
+            "accuracy": 0.25,
+            "consistency": 0.20,
+            "timeliness": 0.15,
+            "validity": 0.15
+        }
+
+        score = (
+            completeness * weights["completeness"] +
+            accuracy * weights["accuracy"] +
+            consistency * weights["consistency"] +
+            timeliness * weights["timeliness"] +
+            validity * weights["validity"]
+        )
+
         # Deduct for validation errors
         validation_errors = validation_result.errors
         score -= len(validation_errors) * 0.1
-        
+
         # Deduct for missing fields
         missing_fields = data.get("_validation_errors", [])
         score -= len(missing_fields) * 0.05
-        
-        # Deduct for null values
-        null_count = sum(1 for v in data.values() if v is None)
-        total_fields = len(data)
-        if total_fields > 0:
-            score -= (null_count / total_fields) * 0.2
-        
+
         return max(0.0, min(1.0, score))
     
     def get_stats(self) -> Dict[str, Any]:

@@ -1,0 +1,131 @@
+{
+  "type": "record",
+  "name": "OHLCBar",
+  "namespace": "com.twenty54.carbon_ingestion",
+  "doc": "OHLC (Open, High, Low, Close) bar for market data aggregation",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier"
+    },
+    {
+      "name": "trace_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Trace identifier for distributed tracing"
+    },
+    {
+      "name": "occurred_at",
+      "type": "long",
+      "doc": "Timestamp in microseconds when the aggregation was calculated"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "default": "default",
+      "doc": "Tenant identifier"
+    },
+    {
+      "name": "schema_version",
+      "type": "string",
+      "default": "1.0.0",
+      "doc": "Schema version"
+    },
+    {
+      "name": "producer",
+      "type": "string",
+      "doc": "Producer service name"
+    },
+    {
+      "name": "payload",
+      "type": {
+        "type": "record",
+        "name": "OHLCBarPayload",
+        "fields": [
+          {
+            "name": "market",
+            "type": "string",
+            "doc": "Market identifier (CAISO, MISO, etc.)"
+          },
+          {
+            "name": "delivery_location",
+            "type": "string",
+            "doc": "Delivery location or hub identifier"
+          },
+          {
+            "name": "delivery_date",
+            "type": "string",
+            "doc": "Delivery date in YYYY-MM-DD format"
+          },
+          {
+            "name": "bar_type",
+            "type": {
+              "type": "enum",
+              "name": "BarType",
+              "symbols": ["daily", "hourly", "custom"]
+            },
+            "doc": "Type of bar (daily, hourly, etc.)"
+          },
+          {
+            "name": "bar_size",
+            "type": "string",
+            "doc": "Size of the bar (1D, 1H, etc.)"
+          },
+          {
+            "name": "open_price",
+            "type": "double",
+            "doc": "Opening price for the period"
+          },
+          {
+            "name": "high_price",
+            "type": "double",
+            "doc": "Highest price during the period"
+          },
+          {
+            "name": "low_price",
+            "type": "double",
+            "doc": "Lowest price during the period"
+          },
+          {
+            "name": "close_price",
+            "type": "double",
+            "doc": "Closing price for the period"
+          },
+          {
+            "name": "volume",
+            "type": "double",
+            "doc": "Total volume traded during the period"
+          },
+          {
+            "name": "vwap",
+            "type": "double",
+            "doc": "Volume-weighted average price"
+          },
+          {
+            "name": "trade_count",
+            "type": "long",
+            "doc": "Number of trades in the period"
+          },
+          {
+            "name": "price_currency",
+            "type": "string",
+            "default": "USD",
+            "doc": "Currency for price fields"
+          },
+          {
+            "name": "quantity_unit",
+            "type": "string",
+            "default": "MWh",
+            "doc": "Unit for quantity fields"
+          },
+          {
+            "name": "aggregation_timestamp",
+            "type": "string",
+            "doc": "ISO timestamp when aggregation was performed"
+          }
+        ]
+      }
+    }
+  ]
+}

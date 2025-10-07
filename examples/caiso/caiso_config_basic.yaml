@@ -1,11 +1,9 @@
-# Basic CAISO Connector Configuration
-# This is a minimal configuration for getting started with CAISO data extraction
-
-name: caiso_basic_example
+# Basic CAISO connector configuration
+name: caiso
 version: 1.0.0
 market: CAISO
 mode: batch
-schedule: "0 */2 * * *"  # Run every 2 hours
+schedule: "0 */1 * * *"  # Every hour
 enabled: true
 output_topic: ingestion.caiso.raw.v1
 schema: schemas/raw_caiso_trade.avsc
@@ -13,23 +11,30 @@ retries: 3
 backoff_seconds: 30
 tenant_strategy: single
 transforms:
-  - sanitize_numeric
-  - standardize_timezone
+  - name: sanitize_numeric
+  - name: standardize_timezone
 owner: platform
-description: "Basic CAISO connector for PRC LMP data extraction"
+description: "CAISO market data connector for real-time and historical trading data"
 tags:
   - market-data
   - energy
-  - california
+  - trading
+  - real-time
 
-# CAISO specific settings
+# CAISO-specific configuration
 caiso_base_url: "https://oasis.caiso.com/oasisapi"
 caiso_timeout: 30
 caiso_rate_limit: 100
 caiso_retry_attempts: 3
 caiso_backoff_factor: 2.0
 caiso_user_agent: "254Carbon/1.0"
+
+# OASIS-specific parameters
 oasis_version: "12"
-oasis_result_format: "6"
-default_market_run_id: "DAM"
-default_node: "TH_SP15_GEN-APND"
+oasis_result_format: "6"  # CSV in ZIP
+default_market_run_id: "DAM"  # Day Ahead Market
+default_node: "TH_SP15_GEN-APND"  # SP15 Generation
+
+# Kafka configuration
+kafka_bootstrap_servers: "localhost:9092"
+schema_registry_url: "http://localhost:8081"

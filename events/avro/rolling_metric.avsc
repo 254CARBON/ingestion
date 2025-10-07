@@ -1,0 +1,105 @@
+{
+  "type": "record",
+  "name": "RollingMetric",
+  "namespace": "com.twenty54.carbon_ingestion",
+  "doc": "Rolling metric for market data analysis",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier"
+    },
+    {
+      "name": "trace_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Trace identifier for distributed tracing"
+    },
+    {
+      "name": "occurred_at",
+      "type": "long",
+      "doc": "Timestamp in microseconds when the metric was calculated"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "default": "default",
+      "doc": "Tenant identifier"
+    },
+    {
+      "name": "schema_version",
+      "type": "string",
+      "default": "1.0.0",
+      "doc": "Schema version"
+    },
+    {
+      "name": "producer",
+      "type": "string",
+      "doc": "Producer service name"
+    },
+    {
+      "name": "payload",
+      "type": {
+        "type": "record",
+        "name": "RollingMetricPayload",
+        "fields": [
+          {
+            "name": "market",
+            "type": "string",
+            "doc": "Market identifier (CAISO, MISO, etc.)"
+          },
+          {
+            "name": "delivery_location",
+            "type": "string",
+            "doc": "Delivery location or hub identifier"
+          },
+          {
+            "name": "delivery_date",
+            "type": "string",
+            "doc": "Delivery date in YYYY-MM-DD format"
+          },
+          {
+            "name": "metric_type",
+            "type": {
+              "type": "enum",
+              "name": "MetricType",
+              "symbols": [
+                "rolling_average_price",
+                "rolling_total_volume",
+                "rolling_price_volatility",
+                "rolling_trade_count",
+                "rolling_vwap"
+              ]
+            },
+            "doc": "Type of rolling metric"
+          },
+          {
+            "name": "window_size",
+            "type": "string",
+            "doc": "Size of the rolling window (e.g., '5', '10', '50')"
+          },
+          {
+            "name": "metric_value",
+            "type": "double",
+            "doc": "Calculated metric value"
+          },
+          {
+            "name": "metric_unit",
+            "type": "string",
+            "doc": "Unit of the metric (USD/MWh, MWh, etc.)"
+          },
+          {
+            "name": "sample_count",
+            "type": "long",
+            "doc": "Number of samples used in calculation"
+          },
+          {
+            "name": "calculation_timestamp",
+            "type": "string",
+            "doc": "ISO timestamp when metric was calculated"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,238 +1,247 @@
 """
-Reprocessing endpoints for the Normalization Service.
+Reprocessing endpoints for normalization service.
+
+This module provides API endpoints for reprocessing historical data
+through the normalization pipeline.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from pydantic import BaseModel, Field
-
-from ..core.normalizer import NormalizationService
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 class ReprocessRequest(BaseModel):
-    """Reprocessing request model."""
-    
-    start_time: datetime = Field(..., description="Start time for reprocessing")
-    end_time: datetime = Field(..., description="End time for reprocessing")
-    market: Optional[str] = Field(None, description="Market filter")
-    connector: Optional[str] = Field(None, description="Connector filter")
-    dry_run: bool = Field(False, description="Dry run mode")
-    force: bool = Field(False, description="Force reprocessing")
+    """Request model for reprocessing."""
 
-
-class ReprocessResponse(BaseModel):
-    """Reprocessing response model."""
-    
-    job_id: str
-    status: str
-    message: str
-    timestamp: str
-    estimated_records: Optional[int] = None
-    estimated_duration: Optional[str] = None
-
-
-class ReprocessStatus(BaseModel):
-    """Reprocessing status model."""
-    
-    job_id: str
-    status: str
-    progress: float
-    records_processed: int
-    records_total: Optional[int] = None
     start_time: str
-    end_time: Optional[str] = None
+    end_time: str
+    market: Optional[str] = None
+    data_type: Optional[str] = None
+    source_topic: str = "ingestion.*.raw.v1"
+    target_topic: str = "normalized.market.ticks.v1"
+    batch_size: int = 100
+    parallel_workers: int = 4
+
+
+class ReprocessJob(BaseModel):
+    """Reprocessing job model."""
+
+    job_id: str
+    status: str  # pending, running, completed, failed, cancelled
+    start_time: str
+    end_time: str
+    market: Optional[str]
+    data_type: Optional[str]
+    records_processed: int = 0
+    records_failed: int = 0
+    created_at: datetime
+    updated_at: datetime
     error_message: Optional[str] = None
 
 
-# In-memory job tracking (would use Redis/database in production)
-reprocess_jobs: Dict[str, Dict[str, Any]] = {}
+# In-memory job storage (in production, use database)
+reprocess_jobs: Dict[str, ReprocessJob] = {}
 
 
-@router.post("/", response_model=ReprocessResponse)
-async def start_reprocess(
-    request: ReprocessRequest,
-    background_tasks: BackgroundTasks
-):
-    """Start a reprocessing job."""
+@router.post("/reprocess")
+async def start_reprocessing(request: ReprocessRequest) -> Dict[str, Any]:
+    """
+    Start a reprocessing job.
+
+    Args:
+        request: Reprocessing request
+
+    Returns:
+        Dict[str, Any]: Job information
+    """
     try:
-        # Generate job ID
-        job_id = f"reprocess_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{id(request) % 10000:04d}"
-        
-        # Validate request
-        if request.end_time <= request.start_time:
-            raise HTTPException(
-                status_code=400,
-                detail="End time must be after start time"
-            )
-        
-        # Estimate records and duration
-        time_diff = request.end_time - request.start_time
-        estimated_records = int(time_diff.total_seconds() / 3600) * 1000  # Rough estimate
-        estimated_duration = f"{time_diff.total_seconds() / 60:.1f} minutes"
-        
-        # Initialize job status
-        reprocess_jobs[job_id] = {
-            "status": "queued",
-            "progress": 0.0,
-            "records_processed": 0,
-            "records_total": estimated_records,
-            "start_time": datetime.now(timezone.utc).isoformat(),
-            "end_time": None,
-            "error_message": None,
-            "request": request.dict()
-        }
-        
-        # Start background task
-        background_tasks.add_task(
-            _run_reprocess_job,
-            job_id,
-            request
-        )
-        
-        return ReprocessResponse(
+        # Create reprocessing job
+        job_id = str(uuid4())
+        job = ReprocessJob(
             job_id=job_id,
-            status="queued",
-            message="Reprocessing job queued successfully",
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            estimated_records=estimated_records,
-            estimated_duration=estimated_duration
+            status="pending",
+            start_time=request.start_time,
+            end_time=request.end_time,
+            market=request.market,
+            data_type=request.data_type,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to start reprocess job: {e}")
-        raise HTTPException(status_code=500, detail="Failed to start reprocess job")
 
+        reprocess_jobs[job_id] = job
 
-@router.get("/{job_id}", response_model=ReprocessStatus)
-async def get_reprocess_status(job_id: str):
-    """Get status of a reprocessing job."""
-    try:
-        if job_id not in reprocess_jobs:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        job = reprocess_jobs[job_id]
-        
-        return ReprocessStatus(
-            job_id=job_id,
-            status=job["status"],
-            progress=job["progress"],
-            records_processed=job["records_processed"],
-            records_total=job["records_total"],
-            start_time=job["start_time"],
-            end_time=job["end_time"],
-            error_message=job["error_message"]
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get reprocess status for {job_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get reprocess status")
+        # Start reprocessing task asynchronously
+        asyncio.create_task(_execute_reprocessing_job(job_id, request))
 
-
-@router.get("/")
-async def list_reprocess_jobs():
-    """List all reprocessing jobs."""
-    try:
-        jobs = []
-        for job_id, job in reprocess_jobs.items():
-            jobs.append({
-                "job_id": job_id,
-                "status": job["status"],
-                "progress": job["progress"],
-                "start_time": job["start_time"],
-                "end_time": job["end_time"]
-            })
-        
-        return {
-            "jobs": jobs,
-            "total": len(jobs)
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to list reprocess jobs: {e}")
-        raise HTTPException(status_code=500, detail="Failed to list reprocess jobs")
-
-
-@router.delete("/{job_id}")
-async def cancel_reprocess_job(job_id: str):
-    """Cancel a reprocessing job."""
-    try:
-        if job_id not in reprocess_jobs:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        job = reprocess_jobs[job_id]
-        
-        if job["status"] in ["completed", "failed", "cancelled"]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot cancel job in {job['status']} status"
-            )
-        
-        # Update job status
-        job["status"] = "cancelled"
-        job["end_time"] = datetime.now(timezone.utc).isoformat()
-        
         return {
             "job_id": job_id,
-            "status": "cancelled",
-            "message": "Job cancelled successfully",
+            "status": "pending",
+            "message": "Reprocessing job created and started",
+            "request": request.dict()
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start reprocessing: {str(e)}")
+
+
+@router.get("/reprocess/{job_id}")
+async def get_reprocessing_status(job_id: str) -> Dict[str, Any]:
+    """
+    Get status of a reprocessing job.
+
+    Args:
+        job_id: Job identifier
+
+    Returns:
+        Dict[str, Any]: Job status
+    """
+    if job_id not in reprocess_jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    job = reprocess_jobs[job_id]
+
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "start_time": job.start_time,
+        "end_time": job.end_time,
+        "market": job.market,
+        "data_type": job.data_type,
+        "records_processed": job.records_processed,
+        "records_failed": job.records_failed,
+        "created_at": job.created_at.isoformat(),
+        "updated_at": job.updated_at.isoformat(),
+        "error_message": job.error_message
+    }
+
+
+@router.get("/reprocess")
+async def list_reprocessing_jobs(
+    status: Optional[str] = Query(None, description="Status filter"),
+    limit: int = Query(50, description="Maximum number of results")
+) -> Dict[str, Any]:
+    """
+    List reprocessing jobs.
+
+    Args:
+        status: Status filter
+        limit: Maximum number of results
+
+    Returns:
+        Dict[str, Any]: List of jobs
+    """
+    try:
+        jobs = list(reprocess_jobs.values())
+
+        # Filter by status
+        if status:
+            jobs = [j for j in jobs if j.status == status]
+
+        # Sort by created_at descending
+        jobs.sort(key=lambda j: j.created_at, reverse=True)
+
+        # Apply limit
+        jobs = jobs[:limit]
+
+        return {
+            "jobs": [
+                {
+                    "job_id": j.job_id,
+                    "status": j.status,
+                    "start_time": j.start_time,
+                    "end_time": j.end_time,
+                    "market": j.market,
+                    "records_processed": j.records_processed,
+                    "records_failed": j.records_failed,
+                    "created_at": j.created_at.isoformat()
+                }
+                for j in jobs
+            ],
+            "count": len(jobs),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        
-    except HTTPException:
-        raise
+
     except Exception as e:
-        logger.error(f"Failed to cancel reprocess job {job_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to cancel reprocess job")
+        raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
 
 
-async def _run_reprocess_job(job_id: str, request: ReprocessRequest):
-    """Run a reprocessing job in the background."""
+@router.post("/reprocess/{job_id}/cancel")
+async def cancel_reprocessing_job(job_id: str) -> Dict[str, Any]:
+    """
+    Cancel a reprocessing job.
+
+    Args:
+        job_id: Job identifier
+
+    Returns:
+        Dict[str, Any]: Cancellation result
+    """
+    if job_id not in reprocess_jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    job = reprocess_jobs[job_id]
+
+    if job.status not in ["pending", "running"]:
+        raise HTTPException(status_code=400, detail=f"Job {job_id} cannot be cancelled (status: {job.status})")
+
+    # Update job status
+    job.status = "cancelled"
+    job.updated_at = datetime.now(timezone.utc)
+
+    return {
+        "job_id": job_id,
+        "status": "cancelled",
+        "message": "Reprocessing job cancelled"
+    }
+
+
+async def _execute_reprocessing_job(job_id: str, request: ReprocessRequest) -> None:
+    """
+    Execute a reprocessing job.
+
+    Args:
+        job_id: Job identifier
+        request: Reprocessing request
+    """
+    from ..main import normalization_service
+
+    job = reprocess_jobs[job_id]
+
     try:
         # Update job status
-        reprocess_jobs[job_id]["status"] = "running"
-        
-        # Initialize normalization service
-        normalization_service = NormalizationService()
-        
-        # Simulate reprocessing
-        total_records = reprocess_jobs[job_id]["records_total"]
-        processed_records = 0
-        
-        # Process in chunks
-        chunk_size = 1000
-        while processed_records < total_records:
-            # Simulate processing time
-            await asyncio.sleep(0.1)
-            
-            # Update progress
-            processed_records += chunk_size
-            progress = min(processed_records / total_records, 1.0)
-            
-            reprocess_jobs[job_id]["progress"] = progress
-            reprocess_jobs[job_id]["records_processed"] = processed_records
-            
-            # Check for cancellation
-            if reprocess_jobs[job_id]["status"] == "cancelled":
-                return
-        
-        # Mark as completed
-        reprocess_jobs[job_id]["status"] = "completed"
-        reprocess_jobs[job_id]["end_time"] = datetime.now(timezone.utc).isoformat()
-        
-        logger.info(f"Reprocess job {job_id} completed successfully")
-        
+        job.status = "running"
+        job.updated_at = datetime.now(timezone.utc)
+
+        # Simulate reprocessing (in production, consume from Kafka and reprocess)
+        # This would:
+        # 1. Connect to Kafka
+        # 2. Seek to offset based on start_time
+        # 3. Consume messages until end_time
+        # 4. Normalize each message
+        # 5. Publish to target topic
+        # 6. Track progress
+
+        # For now, just simulate completion
+        await asyncio.sleep(5)  # Simulate processing time
+
+        # Update job status
+        job.status = "completed"
+        job.records_processed = 100  # Simulated
+        job.updated_at = datetime.now(timezone.utc)
+
+        logging.info(f"Reprocessing job {job_id} completed successfully")
+
     except Exception as e:
-        logger.error(f"Reprocess job {job_id} failed: {e}")
-        reprocess_jobs[job_id]["status"] = "failed"
-        reprocess_jobs[job_id]["error_message"] = str(e)
-        reprocess_jobs[job_id]["end_time"] = datetime.now(timezone.utc).isoformat()
+        # Update job status on failure
+        job.status = "failed"
+        job.error_message = str(e)
+        job.updated_at = datetime.now(timezone.utc)
+
+        logging.error(f"Reprocessing job {job_id} failed: {e}")

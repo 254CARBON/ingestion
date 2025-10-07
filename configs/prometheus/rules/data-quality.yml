@@ -1,0 +1,169 @@
+groups:
+  - name: data_quality_alerts
+    interval: 30s
+    rules:
+      # High anomaly rate alert
+      - alert: HighAnomalyRate
+        expr: rate(dq_anomalies_detected_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "High anomaly detection rate"
+          description: "Anomaly rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # Critical anomaly rate alert
+      - alert: CriticalAnomalyRate
+        expr: rate(dq_anomalies_detected_total[5m]) > 0.25
+        for: 2m
+        labels:
+          severity: critical
+          component: data-quality
+        annotations:
+          summary: "Critical anomaly detection rate"
+          description: "Anomaly rate is {{ $value | humanizePercentage }} - immediate investigation required"
+
+      # Low quality score alert
+      - alert: LowQualityScore
+        expr: avg(dq_quality_score_avg) < 0.7
+        for: 10m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "Low average quality score"
+          description: "Average quality score is {{ $value }} - below threshold of 0.7"
+
+      # Critical quality score alert
+      - alert: CriticalQualityScore
+        expr: avg(dq_quality_score_avg) < 0.5
+        for: 5m
+        labels:
+          severity: critical
+          component: data-quality
+        annotations:
+          summary: "Critical quality score"
+          description: "Average quality score is {{ $value }} - immediate action required"
+
+      # High validation error rate
+      - alert: HighValidationErrorRate
+        expr: rate(dq_validation_errors_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "High validation error rate"
+          description: "Validation errors occurring at {{ $value }} per second"
+
+      # Price spike anomalies
+      - alert: FrequentPriceSpikes
+        expr: sum(increase(dq_anomalies_by_type_total{type="price_spike"}[15m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "Frequent price spike anomalies"
+          description: "{{ $value }} price spikes detected in the last 15 minutes"
+
+      # Missing data alert
+      - alert: MissingDataDetected
+        expr: sum(increase(dq_anomalies_by_type_total{type="missing_data"}[10m])) > 3
+        for: 2m
+        labels:
+          severity: high
+          component: data-quality
+        annotations:
+          summary: "Missing data patterns detected"
+          description: "{{ $value }} missing data anomalies in the last 10 minutes"
+
+      # Schema drift alert
+      - alert: SchemaDriftDetected
+        expr: sum(increase(dq_anomalies_by_type_total{type="schema_drift"}[30m])) > 0
+        for: 1m
+        labels:
+          severity: high
+          component: data-quality
+        annotations:
+          summary: "Schema drift detected"
+          description: "Schema drift anomalies detected - check data contracts"
+
+      # Consumer lag alert
+      - alert: DataQualityConsumerLag
+        expr: sum(kafka_consumer_lag{service="data-quality"}) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "Data quality consumer lag"
+          description: "Consumer lag is {{ $value }} messages - may impact anomaly detection timeliness"
+
+      # Service health alert
+      - alert: DataQualityServiceDown
+        expr: up{job="data-quality-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: data-quality
+        annotations:
+          summary: "Data quality service is down"
+          description: "Data quality service has been down for more than 2 minutes"
+
+      # High processing latency
+      - alert: HighDataQualityProcessingLatency
+        expr: histogram_quantile(0.95, rate(dq_consumer_latency_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "High data quality processing latency"
+          description: "P95 processing latency is {{ $value }}s - above 5s threshold"
+
+      # Market-specific quality alerts
+      - alert: CAISOLowQuality
+        expr: avg(dq_quality_score_avg{market="CAISO"}) < 0.7
+        for: 10m
+        labels:
+          severity: warning
+          component: data-quality
+          market: CAISO
+        annotations:
+          summary: "CAISO data quality degraded"
+          description: "CAISO quality score is {{ $value }} - investigate data source"
+
+      - alert: MISOLowQuality
+        expr: avg(dq_quality_score_avg{market="MISO"}) < 0.7
+        for: 10m
+        labels:
+          severity: warning
+          component: data-quality
+          market: MISO
+        annotations:
+          summary: "MISO data quality degraded"
+          description: "MISO quality score is {{ $value }} - investigate data source"
+
+      # Duplicate detection alert
+      - alert: HighDuplicateRate
+        expr: sum(increase(dq_anomalies_by_type_total{type="duplicate"}[15m])) > 20
+        for: 5m
+        labels:
+          severity: medium
+          component: data-quality
+        annotations:
+          summary: "High duplicate record rate"
+          description: "{{ $value }} duplicate records detected in 15 minutes"
+
+      # Volume anomaly alert
+      - alert: VolumeAnomaliesDetected
+        expr: sum(increase(dq_anomalies_by_type_total{type="volume_anomaly"}[15m])) > 5
+        for: 5m
+        labels:
+          severity: medium
+          component: data-quality
+        annotations:
+          summary: "Volume anomalies detected"
+          description: "{{ $value }} volume anomalies in the last 15 minutes"

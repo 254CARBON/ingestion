@@ -81,16 +81,28 @@ This repository centralizes the ingestion plane for 254Carbon:
         ingestion.*.raw.v1       normalized.market.*.v1      enriched.market.*.v1
                |                          |                           |
                |                          v                           v
-               |                    Aggregation Svc  ----> Projection / Materialized Views
-               |                          |
-               +--------------------------+----> Data Quality Metrics → Metrics Service
+               |                    Aggregation Svc  ----> Projection Service
+               |                          |             (ClickHouse + Redis)
+               |                          v                           v
+               |                    AGGREGATED EVENTS       SERVING LAYER
+               |                          |                    (Optimized Queries)
+               v                          v                           v
+          Kafka Topic               Kafka Topic                 ClickHouse
+        aggregation.*.v1         projection.*.v1             Gold Tables
+               |                          |                           |
+               |                          +---------------------------+
+               |                                    |
+               +------------------------------------+
+                              |
+                              v
+                       Data Quality Metrics → Metrics Service
 ```
 
 Storage progression:
 - **Bronze**: Raw ingest (schema lenient)
 - **Silver**: Normalized typed canonical rows
 - **Gold**: Enriched + aggregated (bars, curves pre-stage)
-- **Served**: Projection tables for low-latency queries (in other repo)
+- **Served**: Projection tables for low-latency queries
 
 ---
 
@@ -142,7 +154,8 @@ Storage progression:
 │  ├─ logging.yaml
 │  ├─ normalization_rules.yaml
 │  ├─ enrichment_taxonomy.yaml
-│  └─ aggregation_policies.yaml
+│  ├─ aggregation_policies.yaml
+│  └─ projection_policies.yaml
 ├─ specs.lock.json
 ├─ service-manifest.yaml          (for each service subfolder too)
 └─ README.md
@@ -305,6 +318,9 @@ Each service has:
 | ingestion.caiso.raw.v1 | Connector (CAISO) | Normalization | raw_caiso_trade.avsc | Bronze |
 | normalized.market.ticks.v1 | Normalization | Enrichment, Analytics | normalized_tick.avsc | Silver |
 | enriched.market.ticks.v1 | Enrichment | Aggregation | enriched_tick.avsc | Gold candidate |
+| aggregation.ohlc.bars.v1 | Aggregation | Projection | ohlc_bar.avsc | OHLC aggregations |
+| aggregation.rolling.metrics.v1 | Aggregation | Projection | rolling_metric.avsc | Rolling metrics |
+| aggregation.curve.prestage.v1 | Aggregation | Projection | curve_prestage.avsc | Curve pre-stage |
 | pricing.curve.updates.v1 | Aggregation | Gateway/Streaming (other repo) | curve_update.avsc | Derivative |
 | data.quality.anomalies.v1 | Normalization/Enrichment | Metrics Service | dq_anomaly.avsc | Observability |
 
@@ -506,13 +522,15 @@ docker exec -it kafka kafka-topics --list --bootstrap-server localhost:9092
 |-------|------|--------|
 | 1 | Dynamic DAG loader baseline | ✅ |
 | 1 | Normalization service + Avro schemas | ✅ |
-| 2 | Enrichment taxonomy v1 | In Progress |
-| 2 | Aggregation incremental bars | Planned |
-| 3 | Data quality anomaly event stream | Planned |
-| 3 | Reprocessing API (normalization/enrichment) | Planned |
+| 2 | Enrichment taxonomy v1 | ✅ |
+| 2 | Aggregation incremental bars | ✅ |
+| 2 | Projection/serving layer | ✅ |
+| 3 | Data quality anomaly event stream | ✅ |
+| 3 | Reprocessing API (normalization/enrichment/aggregation) | ✅ |
+| 3 | Operational tooling (CLI, dashboards, deployment scripts) | ✅ |
 | 4 | Streaming connector support (websocket watch) | Planned |
 | 4 | Backfill orchestration improvements | Planned |
-| 5 | Full OTel tracing coverage | Planned |
+| 5 | Full OTel tracing coverage | In Progress |
 | 5 | mTLS between services | Planned |
 
 ---

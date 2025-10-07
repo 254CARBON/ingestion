@@ -1,0 +1,116 @@
+{
+  "type": "record",
+  "name": "CurvePreStage",
+  "namespace": "com.twenty54.carbon_ingestion",
+  "doc": "Curve pre-stage data for forward pricing curves",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "Unique event identifier"
+    },
+    {
+      "name": "trace_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Trace identifier for distributed tracing"
+    },
+    {
+      "name": "occurred_at",
+      "type": "long",
+      "doc": "Timestamp in microseconds when the curve point was created"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "default": "default",
+      "doc": "Tenant identifier"
+    },
+    {
+      "name": "schema_version",
+      "type": "string",
+      "default": "1.0.0",
+      "doc": "Schema version"
+    },
+    {
+      "name": "producer",
+      "type": "string",
+      "doc": "Producer service name"
+    },
+    {
+      "name": "payload",
+      "type": {
+        "type": "record",
+        "name": "CurvePreStagePayload",
+        "fields": [
+          {
+            "name": "market",
+            "type": "string",
+            "doc": "Market identifier (CAISO, MISO, etc.)"
+          },
+          {
+            "name": "curve_type",
+            "type": {
+              "type": "enum",
+              "name": "CurveType",
+              "symbols": [
+                "spot_curve",
+                "forward_curve",
+                "trade_curve",
+                "price_curve",
+                "status_curve"
+              ]
+            },
+            "doc": "Type of curve"
+          },
+          {
+            "name": "delivery_date",
+            "type": "string",
+            "doc": "Delivery date in YYYY-MM-DD format"
+          },
+          {
+            "name": "delivery_hour",
+            "type": "int",
+            "doc": "Delivery hour (1-24)"
+          },
+          {
+            "name": "price",
+            "type": "double",
+            "doc": "Price for this curve point"
+          },
+          {
+            "name": "quantity",
+            "type": "double",
+            "doc": "Quantity for this curve point"
+          },
+          {
+            "name": "price_currency",
+            "type": "string",
+            "default": "USD",
+            "doc": "Currency for price fields"
+          },
+          {
+            "name": "quantity_unit",
+            "type": "string",
+            "default": "MWh",
+            "doc": "Unit for quantity fields"
+          },
+          {
+            "name": "curve_metadata",
+            "type": {
+              "type": "map",
+              "values": "string"
+            },
+            "default": {},
+            "doc": "Additional metadata for the curve point"
+          },
+          {
+            "name": "aggregation_timestamp",
+            "type": "string",
+            "doc": "ISO timestamp when curve point was aggregated"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,253 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: projection-service
+  namespace: carbon-ingestion
+  labels:
+    app: projection-service
+    component: projection
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: projection-service
+  template:
+    metadata:
+      labels:
+        app: projection-service
+        component: projection
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8513"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: projection-service
+        image: carbon-ingestion/projection-service:latest
+        ports:
+        - containerPort: 8513
+          name: http
+        env:
+        - name: HOST
+          value: "0.0.0.0"
+        - name: PORT
+          value: "8513"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka-service:9092"
+        - name: CLICKHOUSE_DSN
+          value: "clickhouse://clickhouse-service:9000/carbon_ingestion"
+        - name: REDIS_URL
+          value: "redis://redis-service:6379/0"
+        - name: PROJECTION_CONFIG
+          value: "/app/configs/projection_policies.yaml"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: PARALLELISM
+          value: "4"
+        - name: ENABLE_CORS
+          value: "true"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/configs
+          readOnly: true
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8513
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: 8513
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: config-volume
+        configMap:
+          name: projection-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: projection-service
+  namespace: carbon-ingestion
+  labels:
+    app: projection-service
+spec:
+  selector:
+    app: projection-service
+  ports:
+  - name: http
+    port: 8513
+    targetPort: 8513
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: projection-config
+  namespace: carbon-ingestion
+data:
+  projection_policies.yaml: |
+    # Projection Service Policies Configuration
+
+    # ClickHouse connection and performance settings
+    clickhouse:
+      dsn: "clickhouse://clickhouse-service:9000/carbon_ingestion"
+      pool_size: 10
+      batch_size: 1000
+      timeout: 30
+      retries: 3
+      retry_delay: 1.0
+
+    # Redis cache configuration
+    redis:
+      url: "redis://redis-service:6379/0"
+      pool_size: 20
+      default_ttl: 3600
+      max_memory: "2GB"
+
+    # Cache policies for different data types
+    cache:
+      # OHLC bars cache settings
+      ohlc_bars:
+        enabled: true
+        ttl: 3600  # 1 hour
+        max_entries: 10000
+        prefetch: true
+
+      # Rolling metrics cache settings
+      rolling_metrics:
+        enabled: true
+        ttl: 1800  # 30 minutes
+        max_entries: 5000
+        prefetch: true
+
+      # Curve data cache settings
+      curve_data:
+        enabled: true
+        ttl: 7200  # 2 hours
+        max_entries: 20000
+        prefetch: false
+
+      # Query result cache settings
+      query_results:
+        enabled: true
+        ttl: 300  # 5 minutes
+        max_entries: 1000
+
+    # Projection batch processing settings
+    projection:
+      # Batch sizes for different data types
+      batch_sizes:
+        ohlc_bars: 1000
+        rolling_metrics: 500
+        curve_data: 2000
+
+      # Flush intervals (in seconds)
+      flush_intervals:
+        ohlc_bars: 60    # Flush every minute
+        rolling_metrics: 30  # Flush every 30 seconds
+        curve_data: 120   # Flush every 2 minutes
+
+      # Parallelism settings
+      parallelism:
+        max_concurrent_projections: 10
+        max_concurrent_queries: 20
+
+    # Materialized view management
+    materialized_views:
+      # Automatic refresh settings
+      auto_refresh:
+        enabled: true
+        interval_minutes: 60  # Refresh every hour
+
+      # Views to manage
+      views:
+        - name: "mv_daily_ohlc_bars"
+          table: "gold_ohlc_bars"
+          refresh_policy: "incremental"
+
+        - name: "mv_hourly_ohlc_bars"
+          table: "gold_ohlc_bars"
+          refresh_policy: "incremental"
+
+    # Query optimization settings
+    query:
+      # Default query limits
+      default_limits:
+        ohlc_bars: 1000
+        rolling_metrics: 1000
+        curve_data: 1000
+
+      # Query timeout settings
+      timeouts:
+        ohlc_query: 30
+        metrics_query: 30
+        curve_query: 60
+
+      # Cache query results
+      cache_queries: true
+      query_cache_ttl: 300
+
+    # Performance monitoring
+    monitoring:
+      # Metrics collection intervals
+      metrics_interval_seconds: 60
+
+      # Alerting thresholds
+      alerts:
+        high_projection_latency_ms: 5000
+        high_error_rate: 0.1
+        low_cache_hit_rate: 0.7
+
+    # Logging configuration
+    logging:
+      level: INFO
+      format: json
+      structured: true
+      include_trace_id: true
+
+    # Health check settings
+    health:
+      # Service dependencies to check
+      dependencies:
+        clickhouse:
+          type: database
+          timeout_seconds: 10
+
+        redis:
+          type: cache
+          timeout_seconds: 5
+
+        kafka:
+          type: message_queue
+          timeout_seconds: 15
+
+      # Health check intervals
+      check_interval_seconds: 30
+
+    # Feature flags
+    features:
+      # Enable/disable specific features
+      enable_materialized_views: true
+      enable_query_caching: true
+      enable_batch_optimization: true
+      enable_parallel_processing: true
+
+      # Development features
+      enable_debug_logging: false
+      enable_metrics_export: true

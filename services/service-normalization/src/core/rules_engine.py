@@ -80,42 +80,92 @@ class RulesEngine:
         """Compile rules from configuration."""
         try:
             self.rules = []
-            
+
             # Extract rules from configuration
             markets = self.config.get("markets", {})
             global_rules = self.config.get("global", {})
-            
-            # Compile market-specific rules
+
+            # Compile market-specific rules with enhanced priority handling
             for market, market_config in markets.items():
                 transforms = market_config.get("transforms", [])
-                for transform in transforms:
+                validation_rules = market_config.get("validation", [])
+                enrichment_rules = market_config.get("enrichment", [])
+
+                # Process transforms with priority based on order and type
+                for i, transform in enumerate(transforms):
+                    priority = self._calculate_transform_priority(transform, i)
                     rule = Rule(
-                        name=f"{market}_{transform.get('name', 'unknown')}",
+                        name=f"{market}_transform_{transform.get('name', f'unnamed_{i}')}",
                         condition={"market": market},
-                        action=transform,
-                        priority=1
+                        action={"type": "transform", **transform},
+                        priority=priority
                     )
                     self.rules.append(rule)
-            
-            # Compile global rules
+
+                # Process validation rules
+                for i, validation in enumerate(validation_rules):
+                    rule = Rule(
+                        name=f"{market}_validation_{validation.get('name', f'unnamed_{i}')}",
+                        condition={"market": market},
+                        action={"type": "validate", **validation},
+                        priority=10 + i  # Higher priority for validation
+                    )
+                    self.rules.append(rule)
+
+                # Process enrichment rules
+                for i, enrichment in enumerate(enrichment_rules):
+                    rule = Rule(
+                        name=f"{market}_enrichment_{enrichment.get('name', f'unnamed_{i}')}",
+                        condition={"market": market},
+                        action={"type": "enrich", **enrichment},
+                        priority=5 + i  # Medium priority for enrichment
+                    )
+                    self.rules.append(rule)
+
+            # Compile global rules with lower priority
             global_transforms = global_rules.get("transformations", {})
             if global_transforms:
                 rule = Rule(
                     name="global_transforms",
                     condition={},
-                    action=global_transforms,
-                    priority=0
+                    action={"type": "transform", **global_transforms},
+                    priority=0  # Lowest priority for global rules
                 )
                 self.rules.append(rule)
-            
-            # Sort rules by priority
+
+            # Sort rules by priority (highest first)
             self.rules.sort(key=lambda r: r.priority, reverse=True)
-            
-            self.logger.info("Rules compiled successfully", rule_count=len(self.rules))
-            
+
+            # Log rule compilation summary
+            rule_types = {}
+            for rule in self.rules:
+                rule_type = rule.action.get("type", "unknown")
+                rule_types[rule_type] = rule_types.get(rule_type, 0) + 1
+
+            self.logger.info("Rules compiled successfully",
+                           rule_count=len(self.rules),
+                           rule_types=rule_types,
+                           priority_range=f"{min(r.priority for r in self.rules)}-{max(r.priority for r in self.rules)}")
+
         except Exception as e:
             self.logger.error("Failed to compile rules", error=str(e))
             self.rules = []
+
+    def _calculate_transform_priority(self, transform: Dict[str, Any], index: int) -> int:
+        """Calculate priority for transform rules."""
+        base_priority = 2  # Base priority for transforms
+
+        # Increase priority for essential transforms
+        transform_name = transform.get("name", "")
+        if transform_name in ["sanitize_numeric", "validate_required_fields"]:
+            base_priority += 2
+        elif transform_name == "standardize_timezone":
+            base_priority += 1
+
+        # Add index-based priority (earlier transforms get higher priority)
+        base_priority += (len(self.config.get("markets", {})) - index) * 0.1
+
+        return int(base_priority)
     
     async def apply_rules(self, data: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -170,46 +220,111 @@ class RulesEngine:
             return data
     
     def _evaluate_condition(
-        self, 
-        condition: Optional[Dict[str, Any]], 
-        data: Dict[str, Any], 
+        self,
+        condition: Optional[Dict[str, Any]],
+        data: Dict[str, Any],
         context: Dict[str, Any]
     ) -> bool:
         """
-        Evaluate rule condition.
-        
+        Evaluate rule condition with enhanced logic.
+
         Args:
             condition: Condition to evaluate
             data: Data to evaluate against
             context: Additional context
-            
+
         Returns:
             bool: True if condition is met, False otherwise
         """
         if not condition:
             return True
-        
+
         try:
-            # Simple condition evaluation
-            for key, expected_value in condition.items():
-                actual_value = data.get(key) or context.get(key)
-                
-                if isinstance(expected_value, dict):
-                    # Complex condition
-                    if not self._evaluate_complex_condition(expected_value, actual_value):
+            # Enhanced condition evaluation with logical operators
+            if "and" in condition:
+                # All conditions in AND must be true
+                and_conditions = condition["and"]
+                if not isinstance(and_conditions, list):
+                    and_conditions = [and_conditions]
+
+                for sub_condition in and_conditions:
+                    if not self._evaluate_condition(sub_condition, data, context):
                         return False
-                else:
-                    # Simple equality check
-                    if actual_value != expected_value:
-                        return False
-            
-            return True
-            
+                return True
+
+            elif "or" in condition:
+                # At least one condition in OR must be true
+                or_conditions = condition["or"]
+                if not isinstance(or_conditions, list):
+                    or_conditions = [or_conditions]
+
+                for sub_condition in or_conditions:
+                    if self._evaluate_condition(sub_condition, data, context):
+                        return True
+                return False
+
+            elif "not" in condition:
+                # NOT condition
+                not_condition = condition["not"]
+                return not self._evaluate_condition(not_condition, data, context)
+
+            else:
+                # Simple condition evaluation
+                return self._evaluate_simple_condition(condition, data, context)
+
         except Exception as e:
-            self.logger.error("Failed to evaluate condition", 
-                            condition=condition, 
+            self.logger.error("Failed to evaluate condition",
+                            condition=condition,
                             error=str(e))
             return False
+
+    def _evaluate_simple_condition(
+        self,
+        condition: Dict[str, Any],
+        data: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> bool:
+        """Evaluate a simple condition (no logical operators)."""
+        for key, expected_value in condition.items():
+            actual_value = data.get(key) or context.get(key)
+
+            if isinstance(expected_value, dict):
+                # Complex condition
+                if not self._evaluate_complex_condition(expected_value, actual_value):
+                    return False
+            elif isinstance(expected_value, list):
+                # List membership check
+                if actual_value not in expected_value:
+                    return False
+            else:
+                # Simple equality check with type coercion
+                if not self._values_equal(actual_value, expected_value):
+                    return False
+
+        return True
+
+    def _values_equal(self, actual: Any, expected: Any) -> bool:
+        """Check if two values are equal with smart type handling."""
+        if actual is None and expected is None:
+            return True
+        if actual is None or expected is None:
+            return False
+
+        # Handle case-insensitive string comparison
+        if isinstance(actual, str) and isinstance(expected, str):
+            return actual.lower() == expected.lower()
+
+        # Handle numeric comparison with tolerance
+        if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
+            tolerance = 1e-6
+            return abs(float(actual) - float(expected)) < tolerance
+
+        # Handle list/set comparison
+        if isinstance(actual, (list, set)) and isinstance(expected, (list, set)):
+            return set(actual) == set(expected)
+
+        # Default equality check
+        return actual == expected
     
     def _evaluate_complex_condition(self, condition: Dict[str, Any], value: Any) -> bool:
         """
@@ -258,38 +373,46 @@ class RulesEngine:
             return False
     
     async def _apply_action(
-        self, 
-        action: Dict[str, Any], 
-        data: Dict[str, Any], 
+        self,
+        action: Dict[str, Any],
+        data: Dict[str, Any],
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Apply rule action.
-        
+        Apply rule action with enhanced support.
+
         Args:
             action: Action to apply
             data: Data to apply action to
             context: Additional context
-            
+
         Returns:
             Dict[str, Any]: Data after applying action
         """
         try:
             action_type = action.get("type", "transform")
-            
+
             if action_type == "transform":
                 return await self._apply_transform_action(action, data, context)
             elif action_type == "validate":
                 return await self._apply_validate_action(action, data, context)
             elif action_type == "enrich":
                 return await self._apply_enrich_action(action, data, context)
+            elif action_type == "filter":
+                return await self._apply_filter_action(action, data, context)
+            elif action_type == "aggregate":
+                return await self._apply_aggregate_action(action, data, context)
+            elif action_type == "set":
+                return await self._apply_set_action(action, data, context)
+            elif action_type == "delete":
+                return await self._apply_delete_action(action, data, context)
             else:
                 self.logger.warning("Unknown action type", action_type=action_type)
                 return data
-                
+
         except Exception as e:
-            self.logger.error("Failed to apply action", 
-                            action=action, 
+            self.logger.error("Failed to apply action",
+                            action=action,
                             error=str(e))
             return data
     
@@ -512,7 +635,124 @@ class RulesEngine:
             }
         
         return data
-    
+
+    async def _apply_filter_action(
+        self,
+        action: Dict[str, Any],
+        data: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Apply filter action.
+
+        Args:
+            action: Filter action
+            data: Data to filter
+            context: Additional context
+
+        Returns:
+            Dict[str, Any]: Filtered data or empty dict if filtered out
+        """
+        filter_condition = action.get("condition", {})
+
+        if self._evaluate_condition(filter_condition, data, context):
+            return data  # Keep the data
+        else:
+            return {}  # Filter out the data
+
+    async def _apply_aggregate_action(
+        self,
+        action: Dict[str, Any],
+        data: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Apply aggregate action.
+
+        Args:
+            action: Aggregate action
+            data: Data to aggregate
+            context: Additional context
+
+        Returns:
+            Dict[str, Any]: Aggregated data
+        """
+        aggregation_type = action.get("aggregation_type", "count")
+        field = action.get("field")
+        group_by = action.get("group_by", [])
+
+        if not field or field not in data:
+            return data
+
+        # Simple aggregation implementation
+        if aggregation_type == "count":
+            data[f"{field}_count"] = data.get(f"{field}_count", 0) + 1
+        elif aggregation_type == "sum" and isinstance(data[field], (int, float)):
+            data[f"{field}_sum"] = data.get(f"{field}_sum", 0) + data[field]
+        elif aggregation_type == "avg" and isinstance(data[field], (int, float)):
+            count = data.get(f"{field}_count", 0) + 1
+            current_sum = data.get(f"{field}_sum", 0) + data[field]
+            data[f"{field}_count"] = count
+            data[f"{field}_sum"] = current_sum
+            data[f"{field}_avg"] = current_sum / count
+
+        return data
+
+    async def _apply_set_action(
+        self,
+        action: Dict[str, Any],
+        data: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Apply set action.
+
+        Args:
+            action: Set action
+            data: Data to modify
+            context: Additional context
+
+        Returns:
+            Dict[str, Any]: Modified data
+        """
+        field = action.get("field")
+        value = action.get("value")
+
+        if field:
+            # Support value from context or static value
+            if isinstance(value, str) and value.startswith("$"):
+                context_key = value[1:]  # Remove $ prefix
+                data[field] = context.get(context_key, data.get(context_key))
+            else:
+                data[field] = value
+
+        return data
+
+    async def _apply_delete_action(
+        self,
+        action: Dict[str, Any],
+        data: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Apply delete action.
+
+        Args:
+            action: Delete action
+            data: Data to modify
+            context: Additional context
+
+        Returns:
+            Dict[str, Any]: Modified data
+        """
+        fields = action.get("fields", [])
+
+        for field in fields:
+            if field in data:
+                del data[field]
+
+        return data
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get rules engine statistics.

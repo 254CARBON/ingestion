@@ -1,0 +1,157 @@
+name: projection
+version: 1.0.0
+description: "Service for projecting aggregated market data to serving layer (ClickHouse + Redis)"
+owner: platform
+team: ingestion
+
+service:
+  port: 8513
+  health_endpoint: /health
+  metrics_endpoint: /metrics
+  environment: production
+
+dependencies:
+  - name: aggregation-service
+    type: internal
+    description: "Aggregation service for input data"
+
+  - name: kafka
+    type: external
+    version: ">=2.0.2"
+    description: "Kafka client libraries"
+
+  - name: clickhouse
+    type: external
+    version: ">=23.0"
+    description: "ClickHouse database for data storage"
+
+  - name: redis
+    type: external
+    version: ">=7.0"
+    description: "Redis for caching and hot data"
+
+capabilities:
+  - ohlc_projection
+  - metrics_projection
+  - curve_projection
+  - materialized_views
+  - caching
+  - query_api
+
+endpoints:
+  - path: /health
+    methods: [GET]
+    description: "Health check endpoints"
+
+  - path: /metrics
+    methods: [GET]
+    description: "Metrics collection endpoints"
+
+  - path: /query/ohlc
+    methods: [GET]
+    description: "Query OHLC bars with filters"
+
+  - path: /query/metrics
+    methods: [GET]
+    description: "Query rolling metrics"
+
+  - path: /query/curves
+    methods: [GET]
+    description: "Query curve data"
+
+  - path: /cache/invalidate
+    methods: [POST]
+    description: "Invalidate cache entries"
+
+  - path: /cache/refresh
+    methods: [POST]
+    description: "Refresh cache for specific keys"
+
+configuration:
+  kafka_bootstrap_servers:
+    type: string
+    default: "localhost:9092"
+    description: "Kafka bootstrap servers"
+
+  clickhouse_dsn:
+    type: string
+    default: "clickhouse://default@localhost:9000/carbon_ingestion"
+    description: "ClickHouse DSN"
+
+  redis_url:
+    type: string
+    default: "redis://localhost:6379/0"
+    description: "Redis URL"
+
+  input_topics:
+    type: object
+    default:
+      ohlc: "aggregation.ohlc.bars.v1"
+      rolling: "aggregation.rolling.metrics.v1"
+      curve: "aggregation.curve.prestage.v1"
+    description: "Input topics for different data types"
+
+  projection_config:
+    type: string
+    default: "configs/projection_policies.yaml"
+    description: "Path to projection policies configuration"
+
+  cache_config:
+    type: object
+    default:
+      enabled: true
+      default_ttl: 3600
+      max_memory: "1GB"
+    description: "Cache configuration"
+
+monitoring:
+  metrics:
+    - name: projection_records_processed_total
+      type: counter
+      description: "Total number of records projected"
+
+    - name: projection_latency_seconds
+      type: histogram
+      description: "Projection operation latency"
+
+    - name: clickhouse_write_latency_seconds
+      type: histogram
+      description: "ClickHouse write operation latency"
+
+    - name: redis_cache_hit_ratio
+      type: gauge
+      description: "Redis cache hit ratio"
+
+    - name: materialized_view_refresh_count
+      type: counter
+      description: "Number of materialized view refreshes"
+
+  tracing:
+    enabled: true
+    service_name: "projection-service"
+    sampling_rate: 0.1
+
+logging:
+  level: INFO
+  format: json
+  structured: true
+
+deployment:
+  replicas: 3
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+  health_checks:
+    readiness:
+      path: /health
+      initial_delay_seconds: 30
+      period_seconds: 10
+    liveness:
+      path: /health
+      initial_delay_seconds: 60
+      period_seconds: 30

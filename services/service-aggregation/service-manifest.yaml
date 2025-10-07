@@ -1,0 +1,117 @@
+name: aggregation
+version: 1.0.0
+description: "Service for aggregating enriched market data into OHLC bars, rolling metrics, and curve pre-staging"
+owner: platform
+team: ingestion
+
+service:
+  port: 8512
+  health_endpoint: /health
+  metrics_endpoint: /metrics
+  environment: production
+
+dependencies:
+  - name: connectors
+    type: internal
+    description: "Connector framework and implementations"
+  
+  - name: kafka
+    type: external
+    version: ">=2.0.2"
+    description: "Kafka client libraries"
+
+capabilities:
+  - ohlc_aggregation
+  - rolling_metrics
+  - curve_prestaging
+  - incremental_aggregation
+  - metrics_collection
+
+endpoints:
+  - path: /health
+    methods: [GET]
+    description: "Health check endpoints"
+  
+  - path: /metrics
+    methods: [GET]
+    description: "Metrics collection endpoints"
+  
+  - path: /reprocess
+    methods: [POST, GET]
+    description: "Reprocessing endpoints"
+
+configuration:
+  kafka_bootstrap_servers:
+    type: string
+    default: "localhost:9092"
+    description: "Kafka bootstrap servers"
+  
+  input_topic:
+    type: string
+    default: "enriched.market.ticks.v1"
+    description: "Input topic"
+  
+  output_topics:
+    type: object
+    default:
+      ohlc: "aggregation.ohlc.bars.v1"
+      rolling: "aggregation.rolling.metrics.v1"
+      curve: "aggregation.curve.prestage.v1"
+    description: "Output topics for different aggregation types"
+  
+  parallelism:
+    type: integer
+    default: 4
+    description: "Processing parallelism"
+  
+  aggregation_config:
+    type: string
+    default: "configs/aggregation_policies.yaml"
+    description: "Path to aggregation policies configuration"
+
+monitoring:
+  metrics:
+    - name: aggregation_records_processed_total
+      type: counter
+      description: "Total number of records aggregated"
+    
+    - name: aggregation_latency_seconds_bucket
+      type: histogram
+      description: "Aggregation latency distribution"
+    
+    - name: aggregation_failures_total
+      type: counter
+      description: "Total aggregation failures"
+    
+    - name: ohlc_bars_generated_total
+      type: counter
+      description: "Total OHLC bars generated"
+    
+    - name: rolling_metrics_generated_total
+      type: counter
+      description: "Total rolling metrics generated"
+    
+    - name: curve_prestage_generated_total
+      type: counter
+      description: "Total curve pre-stage records generated"
+
+deployment:
+  replicas: 2
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  
+  strategy:
+    type: RollingUpdate
+    maxUnavailable: 1
+    maxSurge: 1
+
+  scaling:
+    min_replicas: 2
+    max_replicas: 10
+    target_cpu_utilization: 70
+    target_memory_utilization: 80

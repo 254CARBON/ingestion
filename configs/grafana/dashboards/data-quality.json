@@ -1,0 +1,174 @@
+{
+  "dashboard": {
+    "title": "Data Quality Monitoring",
+    "tags": ["data-quality", "monitoring", "ingestion"],
+    "timezone": "utc",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Quality Score Over Time",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "avg(dq_quality_score_avg) by (market)",
+            "legendFormat": "{{market}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "min": 0, "max": 1},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Anomalies Detected (Rate)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(dq_anomalies_detected_total[5m])",
+            "legendFormat": "Anomaly Rate",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Anomalies by Type",
+        "type": "piechart",
+        "gridPos": {"x": 0, "y": 8, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(dq_anomalies_by_type_total) by (type)",
+            "legendFormat": "{{type}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Anomalies by Severity",
+        "type": "piechart",
+        "gridPos": {"x": 8, "y": 8, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(dq_anomalies_by_severity_total) by (severity)",
+            "legendFormat": "{{severity}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Records Analyzed",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 8, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "dq_records_analyzed_total",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Total Anomalies",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 12, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "dq_anomalies_detected_total",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 10, "color": "yellow"},
+                {"value": 50, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Consumer Processing Latency",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(dq_consumer_latency_seconds_bucket[5m]))",
+            "legendFormat": "p95 Latency",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(dq_consumer_latency_seconds_bucket[5m]))",
+            "legendFormat": "p50 Latency",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Quality Score Distribution",
+        "type": "heatmap",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "dq_quality_score_avg",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Validation Errors",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(dq_validation_errors_total[5m])",
+            "legendFormat": "Validation Error Rate",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Anomalies by Market",
+        "type": "bargauge",
+        "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(dq_anomalies_detected_total) by (market)",
+            "legendFormat": "{{market}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Recent Anomalies (Table)",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 32, "w": 24, "h": 10},
+        "targets": [
+          {
+            "expr": "topk(20, dq_anomalies_by_type_total)",
+            "format": "table",
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  }
+}

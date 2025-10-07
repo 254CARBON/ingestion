@@ -1,0 +1,262 @@
+{
+  "dashboard": {
+    "title": "Carbon Ingestion Pipeline Monitoring",
+    "tags": ["pipeline", "monitoring", "ingestion", "end-to-end"],
+    "timezone": "utc",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Pipeline Throughput (Records/sec)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(connector_records_extracted_total[5m])",
+            "legendFormat": "Extraction",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(normalization_records_processed_total[5m])",
+            "legendFormat": "Normalization",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(enrichment_records_processed_total[5m])",
+            "legendFormat": "Enrichment",
+            "refId": "C"
+          },
+          {
+            "expr": "rate(aggregation_records_processed_total[5m])",
+            "legendFormat": "Aggregation",
+            "refId": "D"
+          },
+          {
+            "expr": "rate(projection_records_processed_total[5m])",
+            "legendFormat": "Projection",
+            "refId": "E"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "End-to-End Latency (p95)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(normalization_latency_seconds_bucket[5m]))",
+            "legendFormat": "Normalization p95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(enrichment_latency_seconds_bucket[5m]))",
+            "legendFormat": "Enrichment p95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(aggregation_latency_seconds_bucket[5m]))",
+            "legendFormat": "Aggregation p95",
+            "refId": "C"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(projection_latency_seconds_bucket[5m]))",
+            "legendFormat": "Projection p95",
+            "refId": "D"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Error Rates by Service",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(normalization_errors_total[5m])",
+            "legendFormat": "Normalization",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(enrichment_errors_total[5m])",
+            "legendFormat": "Enrichment",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(aggregation_errors_total[5m])",
+            "legendFormat": "Aggregation",
+            "refId": "C"
+          },
+          {
+            "expr": "rate(projection_errors_total[5m])",
+            "legendFormat": "Projection",
+            "refId": "D"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Kafka Consumer Lag",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "kafka_consumer_lag{service=~\"normalization|enrichment|aggregation|projection\"}",
+            "legendFormat": "{{service}} - {{topic}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Service Health Status",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "up{job=~\".*-service\"}",
+            "legendFormat": "{{job}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "1", "text": "UP"},
+              {"type": "value", "value": "0", "text": "DOWN"}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Data Quality Scores by Market",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "avg(dq_quality_score_avg) by (market)",
+            "legendFormat": "{{market}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Cache Hit Rates",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "cache_hit_ratio{service=\"projection\"}",
+            "legendFormat": "Projection Cache",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "ClickHouse Write Performance",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(clickhouse_writes_total[5m])",
+            "legendFormat": "Writes/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(clickhouse_write_latency_seconds_bucket[5m]))",
+            "legendFormat": "p95 Latency",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Records by Stage (Cumulative)",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "connector_records_extracted_total",
+            "legendFormat": "Extracted",
+            "refId": "A"
+          },
+          {
+            "expr": "normalization_records_processed_total",
+            "legendFormat": "Normalized",
+            "refId": "B"
+          },
+          {
+            "expr": "enrichment_records_processed_total",
+            "legendFormat": "Enriched",
+            "refId": "C"
+          },
+          {
+            "expr": "aggregation_records_processed_total",
+            "legendFormat": "Aggregated",
+            "refId": "D"
+          },
+          {
+            "expr": "projection_records_processed_total",
+            "legendFormat": "Projected",
+            "refId": "E"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Pipeline Success Rates",
+        "type": "bargauge",
+        "gridPos": {"x": 0, "y": 40, "w": 24, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(normalization_successful_operations_total[5m]) / rate(normalization_total_operations_total[5m])",
+            "legendFormat": "Normalization",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(enrichment_successful_operations_total[5m]) / rate(enrichment_total_operations_total[5m])",
+            "legendFormat": "Enrichment",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(aggregation_successful_operations_total[5m]) / rate(aggregation_total_operations_total[5m])",
+            "legendFormat": "Aggregation",
+            "refId": "C"
+          },
+          {
+            "expr": "rate(projection_successful_operations_total[5m]) / rate(projection_total_operations_total[5m])",
+            "legendFormat": "Projection",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 0.9, "color": "yellow"},
+                {"value": 0.95, "color": "green"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

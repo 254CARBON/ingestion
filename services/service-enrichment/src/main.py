@@ -17,8 +17,11 @@ from pydantic import BaseModel
 
 from .api.health import router as health_router
 from .api.metrics import router as metrics_router
+from .api.reprocess import router as reprocess_router
 from .core.enricher import EnrichmentService
 from .core.taxonomy import TaxonomyService
+from .consumers.kafka_consumer import KafkaConsumerService, ConsumerConfig
+from .producers.kafka_producer import KafkaProducerService, ProducerConfig
 
 
 class ServiceConfig(BaseModel):
@@ -37,12 +40,14 @@ class ServiceConfig(BaseModel):
 # Global service instances
 enrichment_service: EnrichmentService = None
 taxonomy_service: TaxonomyService = None
+kafka_consumer: KafkaConsumerService = None
+kafka_producer: KafkaProducerService = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global enrichment_service, taxonomy_service
+    global enrichment_service, taxonomy_service, kafka_consumer, kafka_producer
     
     # Startup
     logging.info("Starting Enrichment Service")
@@ -52,8 +57,29 @@ async def lifespan(app: FastAPI):
         enrichment_service = EnrichmentService()
         taxonomy_service = TaxonomyService()
         
-        # Start background tasks
-        await enrichment_service.start()
+        # Initialize Kafka services
+        consumer_config = ConsumerConfig(
+            bootstrap_servers=app.state.config.kafka_bootstrap_servers,
+            topic=app.state.config.input_topic,
+            group_id="enrichment-service"
+        )
+        producer_config = ProducerConfig(
+            bootstrap_servers=app.state.config.kafka_bootstrap_servers,
+            output_topic=app.state.config.output_topic
+        )
+        
+        kafka_consumer = KafkaConsumerService(consumer_config, enrichment_service)
+        kafka_producer = KafkaProducerService(producer_config)
+        
+        # Set up processing callback
+        kafka_consumer.set_processing_callback(kafka_producer.publish_enriched_data)
+        
+        # Start Kafka services
+        await kafka_consumer.start()
+        await kafka_producer.start()
+        
+        # Start background consumption task
+        consumption_task = asyncio.create_task(kafka_consumer.consume_messages())
         
         logging.info("Enrichment Service started successfully")
         yield
@@ -66,8 +92,18 @@ async def lifespan(app: FastAPI):
         # Shutdown
         logging.info("Shutting down Enrichment Service")
         
-        if enrichment_service:
-            await enrichment_service.stop()
+        # Cancel consumption task
+        if 'consumption_task' in locals():
+            consumption_task.cancel()
+            try:
+                await consumption_task
+            except asyncio.CancelledError:
+                pass
+        
+        if kafka_consumer:
+            await kafka_consumer.stop()
+        if kafka_producer:
+            await kafka_producer.stop()
         
         logging.info("Enrichment Service stopped")
 
@@ -82,6 +118,9 @@ def create_app(config: ServiceConfig) -> FastAPI:
         lifespan=lifespan
     )
     
+    # Store config in app state for lifespan access
+    app.state.config = config
+    
     # Add CORS middleware
     if config.enable_cors:
         app.add_middleware(
@@ -95,6 +134,7 @@ def create_app(config: ServiceConfig) -> FastAPI:
     # Include routers
     app.include_router(health_router, prefix="/health", tags=["health"])
     app.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
+    app.include_router(reprocess_router, prefix="/reprocess", tags=["reprocess"])
     
     # Global exception handler
     @app.exception_handler(Exception)

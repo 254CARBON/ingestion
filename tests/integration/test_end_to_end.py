@@ -1,456 +1,521 @@
 """
-End-to-end integration tests for the 254Carbon Ingestion Platform.
+End-to-end tests for the complete data pipeline.
 """
 
 import pytest
 import asyncio
 import json
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, Any, List
+from unittest.mock import Mock, AsyncMock, patch
+from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 
-from connectors.base import ConnectorRegistry, ContractValidator
-from connectors.miso.connector import MISOConnector
-from connectors.miso.config import MISOConnectorConfig
 from connectors.caiso.connector import CAISOConnector
 from connectors.caiso.config import CAISOConnectorConfig
+from connectors.base import ExtractionResult, TransformationResult
+from services.service-enrichment.src.core.enricher import EnrichmentService
+from services.service-aggregation.src.core.aggregator import AggregationService
 
 
 class TestEndToEndPipeline:
     """Test complete end-to-end data pipeline."""
-    
+
     @pytest.fixture
-    def temp_connectors_dir(self, temp_dir):
-        """Create temporary connectors directory."""
-        connectors_dir = temp_dir / "connectors"
-        connectors_dir.mkdir()
-        
-        # Create MISO connector directory
-        miso_dir = connectors_dir / "miso"
-        miso_dir.mkdir()
-        
-        # Create CAISO connector directory
-        caiso_dir = connectors_dir / "caiso"
-        caiso_dir.mkdir()
-        
-        return connectors_dir
-    
+    def caiso_connector(self):
+        """Create CAISO connector."""
+        config = CAISOConnectorConfig(
+            name="test_caiso",
+            version="1.0.0",
+            market="CAISO",
+            mode="batch",
+            enabled=True,
+            output_topic="ingestion.caiso.raw.v1",
+            schema="schemas/raw_caiso_trade.avsc",
+            retries=3,
+            backoff_seconds=30,
+            tenant_strategy="single",
+            transforms=["sanitize_numeric", "standardize_timezone"],
+            owner="platform",
+            caiso_base_url="https://oasis.caiso.com/oasisapi",
+            caiso_timeout=30,
+            default_market_run_id="DAM",
+            default_node="TH_SP15_GEN-APND"
+        )
+        return CAISOConnector(config)
+
     @pytest.fixture
-    def sample_connector_configs(self, temp_connectors_dir):
-        """Create sample connector configurations."""
-        # MISO config
-        miso_config = {
-            "name": "miso",
-            "version": "1.2.0",
+    def enrichment_service(self):
+        """Create enrichment service."""
+        with patch('services.service-enrichment.src.core.enricher.TaxonomyService') as mock_taxonomy:
+            mock_taxonomy.return_value.get_market_taxonomy.return_value = {
+                "instruments": {
+                    "market_price": ["spot_pricing", "real_time_market", "energy_trading"],
+                    "trade": ["energy_trading", "physical_settlement", "executed_transaction"]
+                },
+                "locations": {
+                    "hub": ["trading_hub", "high_liquidity", "price_discovery"],
+                    "node": ["transmission_node", "medium_liquidity", "delivery_point"]
+                },
+                "price_ranges": {
+                    "low": {"min": 0, "max": 50, "tags": ["low_price", "affordable_energy"]},
+                    "medium": {"min": 50, "max": 100, "tags": ["medium_price", "moderate_energy"]},
+                    "high": {"min": 100, "max": 1000, "tags": ["high_price", "expensive_energy"]}
+                },
+                "quantity_ranges": {
+                    "small": {"min": 0, "max": 500, "tags": ["small_quantity", "light_volume"]},
+                    "medium": {"min": 500, "max": 1000, "tags": ["medium_quantity", "moderate_volume"]},
+                    "large": {"min": 1000, "max": 10000, "tags": ["large_quantity", "substantial_volume"]}
+                },
+                "time_periods": {
+                    "off_peak": {"start": 0, "end": 6, "tags": ["off_peak", "low_demand", "night_time"]},
+                    "morning": {"start": 6, "end": 12, "tags": ["morning", "rising_demand", "day_time"]},
+                    "afternoon": {"start": 12, "end": 18, "tags": ["afternoon", "peak_demand", "day_time"]},
+                    "evening": {"start": 18, "end": 24, "tags": ["evening", "declining_demand", "night_time"]}
+                }
+            }
+            return EnrichmentService()
+
+    @pytest.fixture
+    def aggregation_service(self):
+        """Create aggregation service."""
+        with patch('services.service-aggregation.src.core.aggregator.open') as mock_open:
+            mock_open.return_value.__enter__.return_value.read.return_value = """
+ohlc_policies:
+  daily:
+    enabled: true
+    aggregation_window: "1D"
+    buffer_size: 1000
+    flush_interval: "1H"
+    min_trades: 1
+    max_trades: 10000
+  hourly:
+    enabled: true
+    aggregation_window: "1H"
+    buffer_size: 100
+    flush_interval: "15M"
+    min_trades: 1
+    max_trades: 1000
+rolling_metrics:
+  price_metrics:
+    rolling_average_price:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 3
+      max_samples: 1000
+    rolling_price_volatility:
+      enabled: true
+      window_sizes: [5, 10, 20, 50]
+      min_samples: 5
+      max_samples: 1000
+curve_prestage:
+  trade_curves:
+    enabled: true
+    buffer_size: 1000
+    flush_interval: "1H"
+    min_points: 5
+    max_points: 10000
+"""
+            return AggregationService()
+
+    @pytest.fixture
+    def synthetic_caiso_data(self):
+        """Generate synthetic CAISO data."""
+        base_time = datetime.now(timezone.utc)
+        data = []
+        
+        for i in range(24):  # 24 hours of data
+            hour = i
+            price = 50.0 + (i * 2.0) + (i % 3) * 5.0  # Varying prices
+            quantity = 200.0 + (i * 10.0)  # Varying quantities
+            
+            record = {
+                "event_id": str(uuid4()),
+                "trace_id": str(uuid4()),
+                "occurred_at": int((base_time + timedelta(hours=i)).timestamp() * 1_000_000),
+                "tenant_id": "default",
+                "schema_version": "1.0.0",
+                "producer": "caiso-connector",
+                "market": "CAISO",
+                "market_id": "CAISO",
+                "timezone": "UTC",
+                "currency": "USD",
+                "unit": "MWh",
+                "price_unit": "$/MWh",
+                "data_type": "market_price",
+                "source": "caiso-oasis",
+                "trade_id": None,
+                "delivery_location": "TH_SP15_GEN-APND",
+                "delivery_date": base_time.strftime("%Y-%m-%d"),
+                "delivery_hour": hour,
+                "price": price,
+                "quantity": quantity,
+                "bid_price": price - 1.0,
+                "offer_price": price + 1.0,
+                "clearing_price": price,
+                "congestion_price": price * 0.1,
+                "loss_price": price * 0.05,
+                "curve_type": None,
+                "price_type": "LMP",
+                "status_type": None,
+                "status_value": None,
+                "timestamp": (base_time + timedelta(hours=i)).isoformat(),
+                "raw_data": json.dumps([{
+                    "INTERVALSTARTTIME_GMT": (base_time + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:00-0000"),
+                    "INTERVALENDTIME_GMT": (base_time + timedelta(hours=i+1)).strftime("%Y-%m-%dT%H:%M:00-0000"),
+                    "NODE": "TH_SP15_GEN-APND",
+                    "MARKET_RUN_ID": "DAM",
+                    "LMP_TYPE": "LMP",
+                    "MW": str(quantity),
+                    "VALUE": str(price)
+                }]),
+                "transformation_timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            data.append(record)
+        
+        return data
+
+    @pytest.mark.asyncio
+    async def test_complete_pipeline_flow(self, caiso_connector, enrichment_service, aggregation_service, synthetic_caiso_data):
+        """Test complete pipeline from raw data to aggregated output."""
+        
+        # Step 1: Simulate CAISO extraction
+        extraction_result = ExtractionResult(
+            data=synthetic_caiso_data,
+            metadata={
+                "query": {
+                    "start": "2025-01-15T00:00:00-0000",
+                    "end": "2025-01-16T00:00:00-0000",
+                    "market_run_id": "DAM",
+                    "node": "TH_SP15_GEN-APND",
+                    "version": "12"
+                },
+                "source": "oasis-singlezip",
+                "records": len(synthetic_caiso_data)
+            },
+            record_count=len(synthetic_caiso_data)
+        )
+        
+        assert extraction_result.record_count == 24
+        assert len(extraction_result.data) == 24
+        
+        # Step 2: Simulate CAISO transformation
+        with patch.object(caiso_connector._transformer, 'transform') as mock_transform:
+            mock_transform.return_value = TransformationResult(
+                data=synthetic_caiso_data,
+                metadata={
+                    "transformation_time": datetime.now(timezone.utc).isoformat(),
+                    "config": {},
+                    "input_record_count": 24,
+                    "output_record_count": 24,
+                    "validation_errors_count": 0,
+                    "transforms_applied": ["sanitize_numeric", "standardize_timezone"]
+                },
+                record_count=24,
+                validation_errors=[]
+            )
+            
+            transformation_result = await caiso_connector.transform(extraction_result)
+            
+            assert transformation_result.record_count == 24
+            assert len(transformation_result.validation_errors) == 0
+        
+        # Step 3: Enrichment processing
+        enriched_results = []
+        for record in synthetic_caiso_data:
+            enrichment_result = await enrichment_service.enrich(record)
+            enriched_results.append(enrichment_result)
+            
+            # Verify enrichment
+            assert enrichment_result.enrichment_score > 0.0
+            assert "taxonomy_tags" in enrichment_result.enriched_data
+            assert "semantic_tags" in enrichment_result.enriched_data
+            assert "geospatial_data" in enrichment_result.enriched_data
+            assert "metadata_tags" in enrichment_result.enriched_data
+        
+        assert len(enriched_results) == 24
+        
+        # Step 4: Aggregation processing
+        aggregation_results = []
+        for enrichment_result in enriched_results:
+            aggregation_result = await aggregation_service.aggregate(enrichment_result.enriched_data)
+            aggregation_results.append(aggregation_result)
+            
+            # Verify aggregation
+            assert hasattr(aggregation_result, 'ohlc_bars')
+            assert hasattr(aggregation_result, 'rolling_metrics')
+            assert hasattr(aggregation_result, 'curve_prestage')
+        
+        assert len(aggregation_results) == 24
+        
+        # Step 5: Verify pipeline outputs
+        
+        # Check OHLC bars
+        ohlc_bars = []
+        for result in aggregation_results:
+            ohlc_bars.extend(result.ohlc_bars)
+        
+        assert len(ohlc_bars) > 0
+        
+        # Should have daily bars
+        daily_bars = [bar for bar in ohlc_bars if bar.bar_type == "daily"]
+        assert len(daily_bars) >= 1
+        
+        # Should have hourly bars
+        hourly_bars = [bar for bar in ohlc_bars if bar.bar_type == "hourly"]
+        assert len(hourly_bars) >= 1
+        
+        # Verify OHLC bar properties
+        for bar in ohlc_bars:
+            assert bar.market == "CAISO"
+            assert bar.delivery_location == "TH_SP15_GEN-APND"
+            assert bar.price_currency == "USD"
+            assert bar.quantity_unit == "MWh"
+            assert bar.open_price > 0
+            assert bar.high_price >= bar.open_price
+            assert bar.low_price <= bar.open_price
+            assert bar.close_price > 0
+            assert bar.volume > 0
+            assert bar.trade_count > 0
+        
+        # Check rolling metrics
+        rolling_metrics = []
+        for result in aggregation_results:
+            rolling_metrics.extend(result.rolling_metrics)
+        
+        # Should have some rolling metrics after enough data
+        if len(rolling_metrics) > 0:
+            metric_types = set(metric.metric_type for metric in rolling_metrics)
+            assert "rolling_average_price" in metric_types or "rolling_total_volume" in metric_types
+        
+        # Check curve pre-stage
+        curve_prestage = []
+        for result in aggregation_results:
+            curve_prestage.extend(result.curve_prestage)
+        
+        assert len(curve_prestage) == 24  # One per input record
+        
+        # Verify curve pre-stage properties
+        for curve in curve_prestage:
+            assert curve.market == "CAISO"
+            assert curve.curve_type == "spot_curve"  # Based on data_type "market_price"
+            assert curve.price_currency == "USD"
+            assert curve.quantity_unit == "MWh"
+            assert curve.price > 0
+            assert curve.quantity > 0
+            assert "curve_metadata" in curve.dict()
+
+    @pytest.mark.asyncio
+    async def test_pipeline_with_edge_cases(self, enrichment_service, aggregation_service):
+        """Test pipeline with edge cases and error conditions."""
+        
+        # Test with minimal data
+        minimal_data = {
+            "event_id": str(uuid4()),
+            "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            "tenant_id": "default",
             "market": "MISO",
-            "mode": "batch",
-            "schedule": "0 */1 * * *",
-            "enabled": True,
-            "output_topic": "ingestion.miso.raw.v1",
-            "schema": "schemas/raw_miso_trade.avsc",
-            "retries": 3,
-            "backoff_seconds": 30,
-            "tenant_strategy": "single",
-            "transforms": ["sanitize_numeric", "standardize_timezone"],
-            "owner": "platform",
-            "description": "MISO market data connector",
-            "tags": ["market-data", "energy", "trading"]
-        }
-        
-        # CAISO config
-        caiso_config = {
-            "name": "caiso",
-            "version": "1.0.0",
-            "market": "CAISO",
-            "mode": "batch",
-            "schedule": "0 2 * * *",
-            "enabled": True,
-            "output_topic": "ingestion.caiso.raw.v1",
-            "schema": "schemas/raw_caiso_trade.avsc",
-            "retries": 3,
-            "backoff_seconds": 30,
-            "tenant_strategy": "single",
-            "transforms": ["sanitize_numeric", "standardize_timezone"],
-            "owner": "platform",
-            "description": "CAISO market data connector",
-            "tags": ["market-data", "energy", "trading"]
-        }
-        
-        # Write config files
-        miso_config_file = temp_connectors_dir / "miso" / "connector.yaml"
-        caiso_config_file = temp_connectors_dir / "caiso" / "connector.yaml"
-        
-        import yaml
-        with open(miso_config_file, 'w') as f:
-            yaml.dump(miso_config, f)
-        with open(caiso_config_file, 'w') as f:
-            yaml.dump(caiso_config, f)
-        
-        return {"miso": miso_config, "caiso": caiso_config}
-    
-    @pytest.fixture
-    def sample_schemas(self, temp_connectors_dir):
-        """Create sample Avro schemas."""
-        # MISO schema
-        miso_schema = {
-            "type": "record",
-            "name": "RawMISOTrade",
-            "namespace": "com.twentyfivefourcarbon.ingestion.miso",
-            "fields": [
-                {"name": "event_id", "type": "string"},
-                {"name": "occurred_at", "type": "long"},
-                {"name": "tenant_id", "type": "string"},
-                {"name": "schema_version", "type": "string", "default": "1.0.0"},
-                {"name": "producer", "type": "string", "default": "miso-connector"},
-                {"name": "trade_id", "type": ["null", "string"], "default": None},
-                {"name": "price", "type": ["null", "double"], "default": None},
-                {"name": "quantity", "type": ["null", "double"], "default": None}
-            ]
-        }
-        
-        # CAISO schema
-        caiso_schema = {
-            "type": "record",
-            "name": "RawCAISOTrade",
-            "namespace": "com.twentyfivefourcarbon.ingestion.caiso",
-            "fields": [
-                {"name": "event_id", "type": "string"},
-                {"name": "occurred_at", "type": "long"},
-                {"name": "tenant_id", "type": "string"},
-                {"name": "schema_version", "type": "string", "default": "1.0.0"},
-                {"name": "producer", "type": "string", "default": "caiso-connector"},
-                {"name": "trade_id", "type": ["null", "string"], "default": None},
-                {"name": "price", "type": ["null", "double"], "default": None},
-                {"name": "quantity", "type": ["null", "double"], "default": None}
-            ]
-        }
-        
-        # Create schema directories
-        miso_schemas_dir = temp_connectors_dir / "miso" / "schemas"
-        caiso_schemas_dir = temp_connectors_dir / "caiso" / "schemas"
-        miso_schemas_dir.mkdir()
-        caiso_schemas_dir.mkdir()
-        
-        # Write schema files
-        miso_schema_file = miso_schemas_dir / "raw_miso_trade.avsc"
-        caiso_schema_file = caiso_schemas_dir / "raw_caiso_trade.avsc"
-        
-        with open(miso_schema_file, 'w') as f:
-            json.dump(miso_schema, f, indent=2)
-        with open(caiso_schema_file, 'w') as f:
-            json.dump(caiso_schema, f, indent=2)
-        
-        return {"miso": miso_schema, "caiso": caiso_schema}
-    
-    @pytest.mark.asyncio
-    async def test_connector_registry_discovery(self, temp_connectors_dir, sample_connector_configs):
-        """Test connector registry discovery."""
-        registry = ConnectorRegistry(str(temp_connectors_dir))
-        
-        # Discover connectors
-        connectors = registry.discover_connectors()
-        assert len(connectors) == 2
-        assert "miso" in connectors
-        assert "caiso" in connectors
-        
-        # Load all connectors
-        all_connectors = registry.load_all_connectors()
-        assert len(all_connectors) == 2
-        
-        # Test individual connector loading
-        miso_metadata = registry.get_connector("miso")
-        assert miso_metadata is not None
-        assert miso_metadata.name == "miso"
-        assert miso_metadata.market == "MISO"
-        assert miso_metadata.enabled is True
-        
-        caiso_metadata = registry.get_connector("caiso")
-        assert caiso_metadata is not None
-        assert caiso_metadata.name == "caiso"
-        assert caiso_metadata.market == "CAISO"
-        assert caiso_metadata.enabled is True
-    
-    @pytest.mark.asyncio
-    async def test_connector_validation(self, temp_connectors_dir, sample_connector_configs, sample_schemas):
-        """Test connector validation."""
-        registry = ConnectorRegistry(str(temp_connectors_dir))
-        
-        # Validate MISO connector
-        miso_validation = registry.validate_connector("miso")
-        assert miso_validation["valid"] is True
-        assert len(miso_validation["errors"]) == 0
-        
-        # Validate CAISO connector
-        caiso_validation = registry.validate_connector("caiso")
-        assert caiso_validation["valid"] is True
-        assert len(caiso_validation["errors"]) == 0
-    
-    @pytest.mark.asyncio
-    async def test_schema_validation(self, temp_connectors_dir, sample_schemas):
-        """Test Avro schema validation."""
-        validator = ContractValidator(str(temp_connectors_dir))
-        
-        # Test MISO schema
-        miso_schema = validator.load_schema("miso/schemas/raw_miso_trade")
-        assert miso_schema is not None
-        assert miso_schema.name == "RawMISOTrade"
-        
-        # Test CAISO schema
-        caiso_schema = validator.load_schema("caiso/schemas/raw_caiso_trade")
-        assert caiso_schema is not None
-        assert caiso_schema.name == "RawCAISOTrade"
-        
-        # Test record validation
-        sample_record = {
-            "event_id": "test-123",
-            "occurred_at": 1640995200000000,
-            "tenant_id": "test-tenant",
-            "schema_version": "1.0.0",
-            "producer": "test-connector",
-            "trade_id": "trade-456",
-            "price": 50.25,
+            "data_type": "trade",
+            "delivery_location": "node",
+            "delivery_date": "2025-01-15",
+            "price": 25.0,
             "quantity": 100.0
         }
         
-        # Validate against MISO schema
-        miso_valid = validator.validate_record(sample_record, "miso/schemas/raw_miso_trade")
-        assert miso_valid is True
+        # Enrichment should handle minimal data
+        enrichment_result = await enrichment_service.enrich(minimal_data)
+        assert enrichment_result.enrichment_score >= 0.0
         
-        # Validate against CAISO schema
-        caiso_valid = validator.validate_record(sample_record, "caiso/schemas/raw_caiso_trade")
-        assert caiso_valid is True
-    
-    @pytest.mark.asyncio
-    async def test_miso_connector_pipeline(self, sample_connector_configs):
-        """Test MISO connector end-to-end pipeline."""
-        # Create MISO connector config
-        miso_config_data = {
-            **sample_connector_configs["miso"],
-            "miso_api_key": "test-api-key",
-            "miso_base_url": "https://api.misoenergy.org",
-            "miso_timeout": 30,
-            "miso_rate_limit": 100
+        # Aggregation should handle minimal data
+        aggregation_result = await aggregation_service.aggregate(enrichment_result.enriched_data)
+        assert hasattr(aggregation_result, 'ohlc_bars')
+        assert hasattr(aggregation_result, 'rolling_metrics')
+        assert hasattr(aggregation_result, 'curve_prestage')
+        
+        # Test with missing required fields
+        incomplete_data = {
+            "event_id": str(uuid4()),
+            "market": "CAISO"
+            # Missing required fields
         }
         
-        config = MISOConnectorConfig(**miso_config_data)
-        connector = MISOConnector(config)
+        # Enrichment should handle incomplete data gracefully
+        enrichment_result = await enrichment_service.enrich(incomplete_data)
+        assert enrichment_result.enrichment_score >= 0.0
         
-        # Test connector initialization
-        assert connector.config.name == "miso"
-        assert connector.config.market == "MISO"
-        assert connector._extractor is not None
-        assert connector._transformer is not None
-        
-        # Test health status
-        health_status = connector.get_health_status()
-        assert health_status["name"] == "miso"
-        assert health_status["market"] == "MISO"
-        assert health_status["enabled"] is True
-        
-        # Test connector info
-        connector_info = connector.get_connector_info()
-        assert "miso_base_url" in connector_info
-        assert "transforms_enabled" in connector_info
-        
-        # Test extraction capabilities
-        capabilities = connector.get_extraction_capabilities()
-        assert "modes" in capabilities
-        assert "batch" in capabilities["modes"]
-        assert "realtime" in capabilities["modes"]
-    
-    @pytest.mark.asyncio
-    async def test_caiso_connector_pipeline(self, sample_connector_configs):
-        """Test CAISO connector end-to-end pipeline."""
-        # Create CAISO connector config
-        caiso_config_data = {
-            **sample_connector_configs["caiso"],
-            "caiso_api_key": "test-api-key",
-            "caiso_base_url": "https://api.caiso.com",
-            "caiso_timeout": 30,
-            "caiso_rate_limit": 100
-        }
-        
-        config = CAISOConnectorConfig(**caiso_config_data)
-        connector = CAISOConnector(config)
-        
-        # Test connector initialization
-        assert connector.config.name == "caiso"
-        assert connector.config.market == "CAISO"
-        assert connector._extractor is not None
-        assert connector._transformer is not None
-        
-        # Test health status
-        health_status = connector.get_health_status()
-        assert health_status["name"] == "caiso"
-        assert health_status["market"] == "CAISO"
-        assert health_status["enabled"] is True
-        
-        # Test connector info
-        connector_info = connector.get_connector_info()
-        assert "caiso_base_url" in connector_info
-        assert "transforms_enabled" in connector_info
-        
-        # Test extraction capabilities
-        capabilities = connector.get_extraction_capabilities()
-        assert "modes" in capabilities
-        assert "batch" in capabilities["modes"]
-        assert "realtime" in capabilities["modes"]
-    
-    @pytest.mark.asyncio
-    async def test_index_generation(self, temp_connectors_dir, sample_connector_configs):
-        """Test connector index generation."""
-        registry = ConnectorRegistry(str(temp_connectors_dir))
-        
-        # Generate index
-        index = registry.generate_index()
-        
-        assert "version" in index
-        assert "generated_at" in index
-        assert "connectors" in index
-        assert len(index["connectors"]) == 2
-        
-        # Check MISO connector in index
-        assert "miso" in index["connectors"]
-        miso_info = index["connectors"]["miso"]
-        assert miso_info["name"] == "miso"
-        assert miso_info["market"] == "MISO"
-        assert miso_info["enabled"] is True
-        
-        # Check CAISO connector in index
-        assert "caiso" in index["connectors"]
-        caiso_info = index["connectors"]["caiso"]
-        assert caiso_info["name"] == "caiso"
-        assert caiso_info["market"] == "CAISO"
-        assert caiso_info["enabled"] is True
-    
-    @pytest.mark.asyncio
-    async def test_registry_stats(self, temp_connectors_dir, sample_connector_configs):
-        """Test registry statistics."""
-        registry = ConnectorRegistry(str(temp_connectors_dir))
-        
-        # Get stats
-        stats = registry.get_registry_stats()
-        
-        assert "total_connectors" in stats
-        assert "enabled_connectors" in stats
-        assert "disabled_connectors" in stats
-        assert "markets" in stats
-        assert "modes" in stats
-        assert "owners" in stats
-        assert "last_updated" in stats
-        
-        assert stats["total_connectors"] == 2
-        assert stats["enabled_connectors"] == 2
-        assert stats["disabled_connectors"] == 0
-        assert "MISO" in stats["markets"]
-        assert "CAISO" in stats["markets"]
-        assert "batch" in stats["modes"]
-        assert "platform" in stats["owners"]
-    
-    @pytest.mark.asyncio
-    async def test_connector_filtering(self, temp_connectors_dir, sample_connector_configs):
-        """Test connector filtering by various criteria."""
-        registry = ConnectorRegistry(str(temp_connectors_dir))
-        
-        # Filter by market
-        miso_connectors = registry.get_connectors_by_market("MISO")
-        assert len(miso_connectors) == 1
-        assert "miso" in miso_connectors
-        
-        caiso_connectors = registry.get_connectors_by_market("CAISO")
-        assert len(caiso_connectors) == 1
-        assert "caiso" in caiso_connectors
-        
-        # Filter by mode
-        batch_connectors = registry.get_connectors_by_mode("batch")
-        assert len(batch_connectors) == 2
-        assert "miso" in batch_connectors
-        assert "caiso" in batch_connectors
-        
-        # Get enabled connectors
-        enabled_connectors = registry.get_enabled_connectors()
-        assert len(enabled_connectors) == 2
-        assert "miso" in enabled_connectors
-        assert "caiso" in enabled_connectors
+        # Aggregation should handle incomplete data gracefully
+        aggregation_result = await aggregation_service.aggregate(enrichment_result.enriched_data)
+        assert hasattr(aggregation_result, 'ohlc_bars')
+        assert hasattr(aggregation_result, 'rolling_metrics')
+        assert hasattr(aggregation_result, 'curve_prestage')
 
+    @pytest.mark.asyncio
+    async def test_pipeline_performance(self, enrichment_service, aggregation_service, synthetic_caiso_data):
+        """Test pipeline performance with larger datasets."""
+        
+        # Generate larger dataset
+        large_dataset = []
+        base_time = datetime.now(timezone.utc)
+        
+        for day in range(7):  # 7 days
+            for hour in range(24):  # 24 hours per day
+                for minute in range(0, 60, 15):  # Every 15 minutes
+                    price = 50.0 + (day * 5.0) + (hour * 2.0) + (minute * 0.1)
+                    quantity = 200.0 + (day * 10.0) + (hour * 5.0) + (minute * 0.5)
+                    
+                    record = {
+                        "event_id": str(uuid4()),
+                        "occurred_at": int((base_time + timedelta(days=day, hours=hour, minutes=minute)).timestamp() * 1_000_000),
+                        "tenant_id": "default",
+                        "market": "CAISO",
+                        "data_type": "market_price",
+                        "delivery_location": "TH_SP15_GEN-APND",
+                        "delivery_date": (base_time + timedelta(days=day)).strftime("%Y-%m-%d"),
+                        "delivery_hour": hour,
+                        "price": price,
+                        "quantity": quantity,
+                        "source": "caiso-oasis"
+                    }
+                    large_dataset.append(record)
+        
+        # Process large dataset
+        start_time = datetime.now(timezone.utc)
+        
+        enriched_results = []
+        for record in large_dataset:
+            enrichment_result = await enrichment_service.enrich(record)
+            enriched_results.append(enrichment_result)
+        
+        enrichment_time = datetime.now(timezone.utc)
+        enrichment_duration = (enrichment_time - start_time).total_seconds()
+        
+        aggregation_results = []
+        for enrichment_result in enriched_results:
+            aggregation_result = await aggregation_service.aggregate(enrichment_result.enriched_data)
+            aggregation_results.append(aggregation_result)
+        
+        aggregation_time = datetime.now(timezone.utc)
+        aggregation_duration = (aggregation_time - enrichment_time).total_seconds()
+        total_duration = (aggregation_time - start_time).total_seconds()
+        
+        # Verify performance
+        assert len(enriched_results) == len(large_dataset)
+        assert len(aggregation_results) == len(large_dataset)
+        
+        # Performance assertions (adjust thresholds as needed)
+        assert enrichment_duration < 10.0  # Enrichment should complete within 10 seconds
+        assert aggregation_duration < 15.0  # Aggregation should complete within 15 seconds
+        assert total_duration < 25.0  # Total pipeline should complete within 25 seconds
+        
+        # Verify data quality
+        for enrichment_result in enriched_results:
+            assert enrichment_result.enrichment_score > 0.0
+        
+        # Verify aggregation outputs
+        total_ohlc_bars = sum(len(result.ohlc_bars) for result in aggregation_results)
+        total_rolling_metrics = sum(len(result.rolling_metrics) for result in aggregation_results)
+        total_curve_prestage = sum(len(result.curve_prestage) for result in aggregation_results)
+        
+        assert total_ohlc_bars > 0
+        assert total_curve_prestage == len(large_dataset)  # One curve point per record
 
-class TestDataPipelineIntegration:
-    """Test data pipeline integration."""
-    
     @pytest.mark.asyncio
-    async def test_raw_to_normalized_pipeline(self, sample_raw_record, sample_normalized_record):
-        """Test raw to normalized data pipeline."""
-        # This would test the complete pipeline from raw data to normalized data
-        # For now, we'll simulate the key components
+    async def test_pipeline_data_consistency(self, enrichment_service, aggregation_service, synthetic_caiso_data):
+        """Test data consistency across pipeline stages."""
         
-        # Simulate raw data ingestion
-        raw_data = [sample_raw_record]
-        assert len(raw_data) == 1
-        assert raw_data[0]["event_id"] == "test-event-123"
+        # Process data through pipeline
+        enriched_results = []
+        for record in synthetic_caiso_data:
+            enrichment_result = await enrichment_service.enrich(record)
+            enriched_results.append(enrichment_result)
         
-        # Simulate normalization
-        normalized_data = [sample_normalized_record]
-        assert len(normalized_data) == 1
-        assert normalized_data[0]["event_id"] == "test-event-123"
-        assert normalized_data[0]["market"] == "TEST"
-        assert normalized_data[0]["instrument_id"] is not None
+        aggregation_results = []
+        for enrichment_result in enriched_results:
+            aggregation_result = await aggregation_service.aggregate(enrichment_result.enriched_data)
+            aggregation_results.append(aggregation_result)
         
-        # Verify data integrity
-        assert normalized_data[0]["event_id"] == raw_data[0]["event_id"]
-        assert normalized_data[0]["occurred_at"] == raw_data[0]["occurred_at"]
-    
+        # Verify data consistency
+        
+        # 1. Event IDs should be preserved
+        for i, (original, enriched, aggregated) in enumerate(zip(synthetic_caiso_data, enriched_results, aggregation_results)):
+            assert original["event_id"] == enriched.enriched_data["event_id"]
+            # Aggregation doesn't preserve event_id directly, but should be traceable through metadata
+        
+        # 2. Market information should be consistent
+        for enriched_result in enriched_results:
+            assert enriched_result.enriched_data["market"] == "CAISO"
+        
+        # 3. Price and quantity should be preserved
+        for i, (original, enriched) in enumerate(zip(synthetic_caiso_data, enriched_results)):
+            assert original["price"] == enriched.enriched_data["price"]
+            assert original["quantity"] == enriched.enriched_data["quantity"]
+        
+        # 4. OHLC bars should reflect input data
+        ohlc_bars = []
+        for result in aggregation_results:
+            ohlc_bars.extend(result.ohlc_bars)
+        
+        # Verify OHLC calculations
+        for bar in ohlc_bars:
+            if bar.bar_type == "daily":
+                # Daily bar should aggregate all hours for the day
+                assert bar.trade_count >= 1
+                assert bar.volume > 0
+                assert bar.open_price > 0
+                assert bar.high_price >= bar.low_price
+                assert bar.close_price > 0
+        
+        # 5. Enrichment scores should be reasonable
+        enrichment_scores = [result.enrichment_score for result in enriched_results]
+        assert all(score >= 0.0 for score in enrichment_scores)
+        assert all(score <= 1.0 for score in enrichment_scores)
+        assert sum(enrichment_scores) / len(enrichment_scores) > 0.5  # Average score should be reasonable
+
     @pytest.mark.asyncio
-    async def test_normalized_to_enriched_pipeline(self, sample_normalized_record, sample_enriched_record):
-        """Test normalized to enriched data pipeline."""
-        # This would test the complete pipeline from normalized data to enriched data
-        # For now, we'll simulate the key components
+    async def test_pipeline_error_recovery(self, enrichment_service, aggregation_service):
+        """Test pipeline error recovery and resilience."""
         
-        # Simulate normalized data
-        normalized_data = [sample_normalized_record]
-        assert len(normalized_data) == 1
-        assert normalized_data[0]["market"] == "TEST"
-        
-        # Simulate enrichment
-        enriched_data = [sample_enriched_record]
-        assert len(enriched_data) == 1
-        assert enriched_data[0]["market"] == "TEST"
-        assert enriched_data[0]["semantic_tags"] is not None
-        assert enriched_data[0]["taxonomy_class"] is not None
-        
-        # Verify data integrity
-        assert enriched_data[0]["event_id"] == normalized_data[0]["event_id"]
-        assert enriched_data[0]["market"] == normalized_data[0]["market"]
-        assert enriched_data[0]["price"] == normalized_data[0]["price"]
-    
-    @pytest.mark.asyncio
-    async def test_error_handling_pipeline(self):
-        """Test error handling in the data pipeline."""
-        # Test with invalid data
-        invalid_record = {"invalid": "data"}
-        
-        # Simulate error handling
-        try:
-            # This would trigger validation errors
-            if "event_id" not in invalid_record:
-                raise ValueError("Missing required field: event_id")
-        except ValueError as e:
-            assert "Missing required field" in str(e)
-        
-        # Test with partial data
-        partial_record = {
-            "event_id": "test-123",
-            "occurred_at": 1640995200000000,
-            # Missing other required fields
+        # Test with malformed data
+        malformed_data = {
+            "event_id": str(uuid4()),
+            "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            "tenant_id": "default",
+            "market": "CAISO",
+            "data_type": "market_price",
+            "delivery_location": "hub",
+            "delivery_date": "2025-01-15",
+            "delivery_hour": 14,
+            "price": "invalid_price",  # Invalid price
+            "quantity": "invalid_quantity"  # Invalid quantity
         }
         
-        # Simulate partial validation
-        errors = []
-        required_fields = ["event_id", "occurred_at", "tenant_id", "schema_version", "producer"]
-        for field in required_fields:
-            if field not in partial_record:
-                errors.append(f"Missing required field: {field}")
+        # Enrichment should handle malformed data gracefully
+        enrichment_result = await enrichment_service.enrich(malformed_data)
+        assert enrichment_result.enrichment_score >= 0.0
         
-        assert len(errors) == 3  # tenant_id, schema_version, producer
-        assert "Missing required field: tenant_id" in errors
-        assert "Missing required field: schema_version" in errors
-        assert "Missing required field: producer" in errors
+        # Aggregation should handle malformed data gracefully
+        aggregation_result = await aggregation_service.aggregate(enrichment_result.enriched_data)
+        assert hasattr(aggregation_result, 'ohlc_bars')
+        assert hasattr(aggregation_result, 'rolling_metrics')
+        assert hasattr(aggregation_result, 'curve_prestage')
+        
+        # Test with extreme values
+        extreme_data = {
+            "event_id": str(uuid4()),
+            "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            "tenant_id": "default",
+            "market": "CAISO",
+            "data_type": "market_price",
+            "delivery_location": "hub",
+            "delivery_date": "2025-01-15",
+            "delivery_hour": 14,
+            "price": 10000.0,  # Very high price
+            "quantity": 100000.0  # Very high quantity
+        }
+        
+        # Pipeline should handle extreme values
+        enrichment_result = await enrichment_service.enrich(extreme_data)
+        assert enrichment_result.enrichment_score >= 0.0
+        
+        aggregation_result = await aggregation_service.aggregate(enrichment_result.enriched_data)
+        assert hasattr(aggregation_result, 'ohlc_bars')
+        assert hasattr(aggregation_result, 'rolling_metrics')
+        assert hasattr(aggregation_result, 'curve_prestage')

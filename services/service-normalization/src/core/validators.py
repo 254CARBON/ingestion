@@ -163,7 +163,7 @@ class ValidationService:
                     severity="error"
                 )
                 self.rules.append(rule)
-        
+
         # Add market-specific validation rules
         if "validation_rules" in market_config:
             for rule_config in market_config["validation_rules"]:
@@ -175,6 +175,77 @@ class ValidationService:
                     severity=rule_config.get("severity", "error")
                 )
                 self.rules.append(rule)
+
+        # Add business logic validation rules for specific markets
+        self._add_market_business_rules(market, market_config)
+
+    def _add_market_business_rules(self, market: str, market_config: Dict[str, Any]) -> None:
+        """Add business logic validation rules for specific markets."""
+        if market.upper() == "CAISO":
+            self._add_caiso_business_rules()
+        elif market.upper() == "MISO":
+            self._add_miso_business_rules()
+
+    def _add_caiso_business_rules(self) -> None:
+        """Add CAISO-specific business validation rules."""
+        ca_rules = [
+            ValidationRule(
+                name="caiso_price_range",
+                field="price",
+                rule_type="range",
+                parameters={"min": 0, "max": 2000},  # CAISO price cap
+                severity="warning"
+            ),
+            ValidationRule(
+                name="caiso_delivery_hour",
+                field="delivery_hour",
+                rule_type="range",
+                parameters={"min": 1, "max": 24},
+                severity="error"
+            ),
+            ValidationRule(
+                name="caiso_location_format",
+                field="delivery_location",
+                rule_type="regex",
+                parameters={"pattern": r"^[A-Z]{3}_[A-Z0-9]+_[A-Z]+$"},  # CAISO naming pattern
+                severity="warning"
+            ),
+            ValidationRule(
+                name="caiso_clearing_price",
+                field="clearing_price",
+                rule_type="business_logic",
+                parameters={"depends_on": "price", "tolerance": 0.01},
+                severity="warning"
+            )
+        ]
+        self.rules.extend(ca_rules)
+
+    def _add_miso_business_rules(self) -> None:
+        """Add MISO-specific business validation rules."""
+        miso_rules = [
+            ValidationRule(
+                name="miso_price_range",
+                field="price",
+                rule_type="range",
+                parameters={"min": 0, "max": 1000},  # MISO price cap
+                severity="warning"
+            ),
+            ValidationRule(
+                name="miso_quantity_positive",
+                field="quantity",
+                rule_type="range",
+                parameters={"min": 0},
+                severity="error"
+            ),
+            ValidationRule(
+                name="miso_location_format",
+                field="delivery_location",
+                rule_type="regex",
+                parameters={"pattern": r"^[A-Z]{4,}$"},  # MISO naming pattern
+                severity="warning"
+            )
+        ]
+        self.rules.extend(miso_rules)
     
     async def validate(self, data: Dict[str, Any]) -> ValidationResult:
         """
@@ -394,7 +465,19 @@ class ValidationService:
             elif rule_type == "url":
                 if field_value and not self._is_valid_url(str(field_value)):
                     messages.append(f"Field '{field_name}' is not a valid URL")
-            
+
+            elif rule_type == "business_logic":
+                business_messages = await self._validate_business_logic(field_name, field_value, parameters, data)
+                messages.extend(business_messages)
+
+            elif rule_type == "cross_field":
+                cross_messages = await self._validate_cross_field(field_name, field_value, parameters, data)
+                messages.extend(cross_messages)
+
+            elif rule_type == "data_quality":
+                quality_messages = await self._validate_data_quality(field_name, field_value, parameters, data)
+                messages.extend(quality_messages)
+
             else:
                 self.logger.warning("Unknown validation rule type", rule_type=rule_type)
         
@@ -436,7 +519,121 @@ class ValidationService:
             return bool(re.match(pattern, value))
         except Exception:
             return False
-    
+
+    async def _validate_business_logic(
+        self,
+        field_name: str,
+        field_value: Any,
+        parameters: Dict[str, Any],
+        data: Dict[str, Any]
+    ) -> List[str]:
+        """Validate business logic rules."""
+        messages = []
+
+        try:
+            depends_on = parameters.get("depends_on")
+            if depends_on and depends_on in data:
+                dependent_value = data[depends_on]
+                tolerance = parameters.get("tolerance", 0.01)
+
+                # Example: clearing_price should be close to price for CAISO
+                if field_name == "clearing_price" and depends_on == "price":
+                    if field_value is not None and dependent_value is not None:
+                        diff = abs(float(field_value) - float(dependent_value))
+                        if diff > tolerance:
+                            messages.append(
+                                f"Field '{field_name}' differs significantly from '{depends_on}' "
+                                f"(diff: {diff:.4f}, tolerance: {tolerance})"
+                            )
+
+            # Market-specific business rules
+            market = data.get("market", "").upper()
+            if market == "CAISO" and field_name == "price":
+                if field_value is not None:
+                    price = float(field_value)
+                    if price > 2000:  # CAISO price cap
+                        messages.append(f"CAISO price {price} exceeds price cap of $2000/MWh")
+                    elif price < -100:  # Negative prices with reasonable bound
+                        messages.append(f"CAISO price {price} is unusually low")
+
+        except Exception as e:
+            messages.append(f"Business logic validation error: {str(e)}")
+
+        return messages
+
+    async def _validate_cross_field(
+        self,
+        field_name: str,
+        field_value: Any,
+        parameters: Dict[str, Any],
+        data: Dict[str, Any]
+    ) -> List[str]:
+        """Validate cross-field relationships."""
+        messages = []
+
+        try:
+            # Example: quantity should be positive if price is present
+            if field_name == "quantity" and "price" in data:
+                if field_value is not None and data["price"] is not None:
+                    if float(field_value) < 0 and float(data["price"]) > 0:
+                        messages.append("Quantity cannot be negative when price is positive")
+
+            # Example: delivery_date should be in the future for forward contracts
+            if field_name == "delivery_date" and data.get("data_type") == "curve":
+                try:
+                    from datetime import datetime
+                    delivery_date = datetime.strptime(str(field_value), "%Y-%m-%d")
+                    if delivery_date < datetime.now():
+                        messages.append("Delivery date should be in the future for forward curves")
+                except (ValueError, TypeError):
+                    pass  # Invalid date format handled elsewhere
+
+        except Exception as e:
+            messages.append(f"Cross-field validation error: {str(e)}")
+
+        return messages
+
+    async def _validate_data_quality(
+        self,
+        field_name: str,
+        field_value: Any,
+        parameters: Dict[str, Any],
+        data: Dict[str, Any]
+    ) -> List[str]:
+        """Validate data quality aspects."""
+        messages = []
+
+        try:
+            # Check for suspicious patterns
+            if field_name == "price" and field_value is not None:
+                price = float(field_value)
+
+                # Check for repeated digits (potential data entry error)
+                price_str = str(int(price)) if price.is_integer() else str(price)
+                if len(set(price_str.replace('.', ''))) <= 2:
+                    messages.append(f"Price {price} has suspicious repeated digits pattern")
+
+                # Check for round numbers that might indicate estimation
+                if price > 0 and price.is_integer() and price % 10 == 0 and price > 100:
+                    messages.append(f"Round price {price} might be an estimate")
+
+            # Check for data freshness
+            if field_name == "occurred_at" and field_value is not None:
+                try:
+                    timestamp = int(field_value)
+                    current_time = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+                    age_seconds = (current_time - timestamp) / 1_000_000
+
+                    if age_seconds > 86400 * 7:  # Older than 1 week
+                        messages.append(f"Data is {age_seconds / 86400:.1f} days old")
+                except (ValueError, TypeError):
+                    pass
+
+        except Exception as e:
+            messages.append(f"Data quality validation error: {str(e)}")
+
+        return messages
+
     def _calculate_validation_score(
         self, 
         data: Dict[str, Any], 
