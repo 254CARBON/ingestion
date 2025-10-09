@@ -381,17 +381,27 @@ See `configs/.env.example` (create `.env` for local runs).
 # 1. Install Python deps for shared tooling
 make setup
 
-# 2. Spin up local infra (optional compose variant)
-make infra-up
+# 2. Bootstrap ingestion pipeline infra (Kafka/ClickHouse/Redis) and services + load ClickHouse DDLs
+make pipeline-bootstrap
 
 # 3. Generate connector index
 make connectors-index
 
-# 4. Run normalization service locally
+# 4. Publish exemplar raw → normalized → enriched → aggregated events
+make pipeline-run
+
+# 5. Inspect service status (containers should be healthy)
+make pipeline-status
+
+# 6. (Optional) Run normalization service locally instead of the compose container
+# docker-compose -f docker-compose.services.yml stop normalization
 make run-normalization
 
-# 5. Trigger sample ingestion test (synthetic)
+# 7. (Optional) Trigger synthetic ingestion test data
 make simulate-miso
+
+# 8. (Optional) Tear down services when finished (infra stays up)
+make pipeline-down
 ```
 
 ### Common Make Targets
@@ -405,6 +415,12 @@ make simulate-miso
 | `make connectors-index` | Aggregate connectors metadata |
 | `make airflow-up` | Launch local Airflow |
 | `make infra-up` | Start Kafka/ClickHouse/Redis via compose |
+| `make pipeline-bootstrap` | Start infra, apply ClickHouse Bronze/Silver/Gold DDLs, launch normalization/enrichment/aggregation |
+| `make pipeline-run` | Publish exemplar raw pipeline data through the services |
+| `make pipeline-status` | Show compose status for normalization/enrichment/aggregation |
+| `make pipeline-down` | Stop normalization/enrichment/aggregation services |
+| `make pipeline-k8s-bootstrap` | Wrapper around infra/ to stand up the local Kubernetes stack |
+| `make pipeline-apply-ddl` | Manually re-apply ClickHouse schemas via HTTP |
 
 ---
 

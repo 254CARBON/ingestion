@@ -126,7 +126,12 @@ async def main():
         load_result = await connector.load(transformation_result)
         
         print(f"Load completed:")
-        print(f"  Records loaded: {load_result.record_count}")
+        print(
+            "  Records loaded: "
+            f"{load_result.records_published}/{load_result.records_attempted}"
+        )
+        print(f"  Failed publishes: {load_result.records_failed}")
+        print(f"  Load success: {load_result.success}")
         print(f"  Load metadata: {load_result.metadata}")
         
         # Step 4: Verify data quality
@@ -259,8 +264,15 @@ async def generate_summary_report(
     
     # Load summary
     print(f"\nLoad:")
-    print(f"  Records loaded: {load_result.record_count}")
+    print(
+        "  Records loaded: "
+        f"{load_result.records_published}/{load_result.records_attempted}"
+    )
+    print(f"  Failed publishes: {load_result.records_failed}")
+    print(f"  Load success: {load_result.success}")
     print(f"  Load method: {load_result.metadata.get('load_method', 'unknown')}")
+    if load_result.errors:
+        print(f"  Load errors (sample): {load_result.errors[:3]}")
     
     # Kafka summary
     kafka_stats = kafka_producer.get_stats()
@@ -270,12 +282,17 @@ async def generate_summary_report(
     
     # Overall summary
     print(f"\nOverall:")
-    success_rate = (
+    transform_success = (
         transformation_result.record_count / max(1, extraction_result.record_count)
     ) * 100
-    print(f"  Success rate: {success_rate:.1f}%")
+    load_success = (
+        load_result.records_published / max(1, load_result.records_attempted)
+    ) * 100
+    print(f"  Transformation success rate: {transform_success:.1f}%")
+    print(f"  Load success rate: {load_success:.1f}%")
     print(f"  Data quality: {'Good' if len(transformation_result.validation_errors) == 0 else 'Issues detected'}")
-    print(f"  Integration status: {'Success' if success_rate > 95 else 'Partial success'}")
+    status = "Success" if load_result.success and transform_success > 95 else "Partial success"
+    print(f"  Integration status: {status}")
 
 
 if __name__ == "__main__":

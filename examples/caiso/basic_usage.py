@@ -91,12 +91,17 @@ async def main():
         if transformation_result.data:
             print(f"  Sample transformed record: {transformation_result.data[0]}")
         
-        # Load data (simulate)
+        # Load data (publish to Kafka)
         load_result = await connector.load(transformation_result)
         
         print(f"Load completed:")
-        print(f"  Records loaded: {load_result.record_count}")
+        print(
+            "  Records loaded: "
+            f"{load_result.records_published}/{load_result.records_attempted}"
+        )
+        print(f"  Failed publishes: {load_result.records_failed}")
         print(f"  Load metadata: {load_result.metadata}")
+        print(f"  Load success: {load_result.success}")
         
         print("CAISO connector example completed successfully!")
         

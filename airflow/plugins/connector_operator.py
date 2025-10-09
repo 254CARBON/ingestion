@@ -105,10 +105,18 @@ class ConnectorOperator(BaseOperator):
                 transformation_result = self._get_transformation_result(context)
                 result = await connector.load(transformation_result)
             
+            # Ensure result is serializable for XCom
+            if hasattr(result, "model_dump"):
+                xcom_value = result.model_dump()
+            elif hasattr(result, "dict"):
+                xcom_value = result.dict()
+            else:
+                xcom_value = result
+            
             # Store result in XCom for downstream tasks
             context['task_instance'].xcom_push(
                 key=f'{self.operation}_result',
-                value=result
+                value=xcom_value
             )
             
             return result

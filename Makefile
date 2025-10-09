@@ -1,7 +1,9 @@
 # 254Carbon Ingestion Layer Makefile
 # Build automation and common tasks
 
-.PHONY: help setup lint test build validate-schemas connectors-index airflow-up infra-up observability-up observability-down observability-logs observability-status prometheus-up prometheus-down prometheus-logs grafana-up grafana-down grafana-logs jaeger-up jaeger-down jaeger-logs run-normalization simulate-miso clean
+.PHONY: help setup lint test build validate-schemas connectors-index airflow-up infra-up observability-up observability-down observability-logs observability-status prometheus-up prometheus-down prometheus-logs grafana-up grafana-down grafana-logs jaeger-up jaeger-down jaeger-logs run-normalization simulate-miso clean wait-clickhouse pipeline-apply-ddl pipeline-services-up pipeline-services-down pipeline-bootstrap pipeline-run pipeline-status pipeline-down
+
+CLUSTER_NAME ?= local-254carbon
 
 # Default target
 help:
@@ -110,6 +112,53 @@ jaeger-logs:
 
 run-normalization:
 	python -m services.service-normalization.src.main
+
+wait-clickhouse:
+	@echo "Waiting for ClickHouse at http://localhost:8123/ping ..."
+	@for _ in $$(seq 1 60); do \
+		if curl -fsS http://localhost:8123/ping >/dev/null 2>&1; then \
+			echo "ClickHouse is ready."; \
+			exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "ClickHouse did not become ready within the allotted time." >&2; \
+	exit 1
+
+pipeline-apply-ddl: wait-clickhouse ## Apply ClickHouse Bronze/Silver/Gold schemas
+	python scripts/apply_clickhouse_schemas.py
+
+pipeline-services-up: ## Start normalization, enrichment, and aggregation services
+	docker-compose -f docker-compose.services.yml up -d normalization enrichment aggregation
+
+pipeline-services-down: ## Stop normalization, enrichment, and aggregation services
+	docker-compose -f docker-compose.services.yml stop normalization enrichment aggregation || true
+
+pipeline-status: ## Show status for normalization/enrichment/aggregation services
+	docker-compose -f docker-compose.services.yml ps normalization enrichment aggregation
+
+pipeline-bootstrap: infra-up pipeline-apply-ddl pipeline-services-up ## Bootstraps infra, loads DDLs, and launches normalization pipeline services
+	@echo "Pipeline bootstrap complete."
+
+pipeline-run: ## Publish exemplar raw events into Kafka (requires pipeline services running)
+	python examples/pipeline/raw_pipeline.py --config examples/pipeline/raw_pipeline_config.yaml
+
+pipeline-down: pipeline-services-down ## Stop pipeline services (infra left running)
+
+pipeline-k8s-bootstrap: ## Bootstrap ingestion services onto local Kubernetes cluster via infra tooling (skips cluster-up if already running)
+	@if ! kubectl config current-context >/dev/null 2>&1; then \
+		$(MAKE) -C ../infra cluster-up; \
+	else \
+		context=$$(kubectl config current-context); \
+		if [ "$$context" != "kind-$(CLUSTER_NAME)" ]; then \
+			$(MAKE) -C ../infra cluster-up; \
+		else \
+			echo "Using existing cluster context $$context (skipping cluster-up)"; \
+		fi; \
+	fi
+	$(MAKE) -C ../infra k8s-apply-base
+	$(MAKE) -C ../infra k8s-apply-platform
+	$(MAKE) -C ../infra verify
 
 simulate-miso:
 	python scripts/simulate_events.py --connector=miso --count=100

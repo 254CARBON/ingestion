@@ -211,12 +211,26 @@ class TestCAISOConnector:
         
         # Mock Kafka producer
         with patch('connectors.caiso.kafka_producer.KafkaProducerService') as mock_producer:
-            mock_producer.return_value.publish_batch = AsyncMock(return_value={"successful": 1, "failed": 0})
+            producer_instance = mock_producer.return_value
+            producer_instance.start = AsyncMock()
+            producer_instance.stop = AsyncMock()
+            producer_instance.publish_batch = AsyncMock(
+                return_value={
+                    "total_count": 1,
+                    "success_count": 1,
+                    "failure_count": 0,
+                    "errors": [],
+                }
+            )
             
             result = await connector.load(transformation_result)
             
-            assert result.record_count == 1
+            assert result.records_attempted == 1
+            assert result.records_published == 1
+            assert result.records_failed == 0
             assert result.metadata["load_method"] == "kafka"
+            assert result.success is True
+            producer_instance.publish_batch.assert_awaited_once()
     
     @pytest.mark.asyncio
     async def test_error_handling(self, connector):

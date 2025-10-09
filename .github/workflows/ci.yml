@@ -1,0 +1,189 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: ingestion-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: confluentinc/cp-kafka:7.4.0
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        options: >-
+          --health-cmd "kafka-broker-api-versions --bootstrap-server localhost:9092"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      zookeeper:
+        image: confluentinc/cp-zookeeper:7.4.0
+        ports:
+          - 2181:2181
+        env:
+          ZOOKEEPER_CLIENT_PORT: 2181
+          ZOOKEEPER_TICK_TIME: 2000
+        options: >-
+          --health-cmd "nc -z localhost 2181"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      clickhouse:
+        image: clickhouse/clickhouse-server:23.8
+        ports:
+          - 8123:8123
+          - 9000:9000
+        env:
+          CLICKHOUSE_DB: carbon_ingestion
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: ""
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ingestion/requirements-dev.txt
+          pip install -e ingestion
+
+      - name: Wait for services
+        run: sleep 30
+
+      - name: Run unit tests
+        env:
+          INGESTION_CLICKHOUSE_URL: http://localhost:8123
+          INGESTION_KAFKA_BOOTSTRAP: localhost:9092
+          INGESTION_REDIS_URL: redis://localhost:6379/0
+        run: |
+          cd ingestion
+          pytest tests/unit/ -v --cov=. --cov-report=xml:coverage.xml --cov-report=html
+
+      - name: Run integration tests
+        env:
+          INGESTION_CLICKHOUSE_URL: http://localhost:8123
+          INGESTION_KAFKA_BOOTSTRAP: localhost:9092
+          INGESTION_REDIS_URL: redis://localhost:6379/0
+        run: |
+          cd ingestion
+          pytest tests/integration/ -v --cov=. --cov-report=xml:coverage.xml --cov-report=html --cov-append
+
+      - name: Upload coverage to Codecov
+        if: secrets.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v4
+        with:
+          files: ingestion/coverage.xml
+          flags: ingestion
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingestion-tests
+          path: |
+            ingestion/coverage.xml
+            ingestion/htmlcov/
+
+  pipeline:
+    needs: tests
+    uses: ./.github/workflows/service-ci-template.yml
+    secrets: inherit
+    with:
+      service_slug: ingestion
+      python_version: '3.12'
+      install_command: |
+        python -m pip install --upgrade pip
+        pip install -r ingestion/requirements-dev.txt
+        pip install -e ingestion
+      quality_matrix: ${{ toJson([
+        {
+          "name": "ingestion",
+          "source_path": ".",
+          "tests_path": "",
+          "coverage_path": ""
+        }
+      ]) }}
+      quality_command: |
+        set -euo pipefail
+        cd ingestion
+        make lint
+      contract_command: |
+        cd ingestion
+        python scripts/validate_schemas.py
+        python scripts/generate_connectors_index.py
+      build_matrix: ${{ toJson([
+        {
+          "name": "normalization",
+          "context": "ingestion/services/service-normalization",
+          "image": "ghcr.io/254carbon/ingestion-normalization"
+        },
+        {
+          "name": "enrichment",
+          "context": "ingestion/services/service-enrichment",
+          "image": "ghcr.io/254carbon/ingestion-enrichment"
+        },
+        {
+          "name": "aggregation",
+          "context": "ingestion/services/service-aggregation",
+          "image": "ghcr.io/254carbon/ingestion-aggregation"
+        },
+        {
+          "name": "projection",
+          "context": "ingestion/services/service-projection",
+          "image": "ghcr.io/254carbon/ingestion-projection"
+        },
+        {
+          "name": "data-quality",
+          "context": "ingestion/services/service-data-quality",
+          "image": "ghcr.io/254carbon/ingestion-data-quality"
+        },
+        {
+          "name": "connector-registry",
+          "context": "ingestion/services/service-connector-registry",
+          "image": "ghcr.io/254carbon/ingestion-connector-registry"
+        }
+      ]) }}
+      policy_paths: |
+        ingestion/k8s
+      publish: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') || github.event_name == 'release' }}
+      generate_sbom: true
+      sign_images: true
+      run_vulnerability_scan: true

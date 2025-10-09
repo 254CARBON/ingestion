@@ -1,0 +1,25 @@
+pipeline:
+  name: exemplar_raw_ingestion
+  description: >
+    Example pipeline that demonstrates publishing CAISO raw market data into
+    ingestion Kafka topics for the bronze data tier.
+
+kafka:
+  bootstrap_servers: "localhost:9092"
+  schema_registry_url: "http://localhost:8081"
+
+connectors:
+  - name: caiso_exemplar
+    type: caiso
+    connector_config:
+      # Reuse the example connector configuration and override Kafka outputs.
+      file: "../caiso/caiso_config_basic.yaml"
+      overrides:
+        output_topic: "ingestion.caiso.raw.v1"
+        enabled: true
+    extract:
+      # Pull the most recent hour of data by default.
+      lookback_hours: 1
+      params:
+        market_run_id: "DAM"
+        node: "TH_SP15_GEN-APND"

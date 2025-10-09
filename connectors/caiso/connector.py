@@ -163,3 +163,11 @@ class CAISOConnector(BaseConnector):
             self.logger.error(f"Real-time run failed: {e}")
             return False
 
+    async def cleanup(self) -> None:
+        """Cleanup connector resources."""
+        try:
+            client = getattr(self._extractor, "_client", None)
+            if client:
+                await client.aclose()
+        except Exception as exc:
+            self.logger.warning("Error during CAISO connector cleanup", error=str(exc))

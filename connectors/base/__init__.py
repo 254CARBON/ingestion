@@ -6,7 +6,13 @@ data connectors that extract, transform, and load market data from various
 sources into the 254Carbon platform.
 """
 
-from .base_connector import BaseConnector, ConnectorConfig, ExtractionResult, TransformationResult
+from .base_connector import (
+    BaseConnector,
+    ConnectorConfig,
+    ExtractionResult,
+    TransformationResult,
+    LoadResult,
+)
 from .contract_validator import ContractValidator
 from .connector_registry import ConnectorRegistry
 from .exceptions import (
@@ -27,6 +33,7 @@ __all__ = [
     "BaseConnector",
     "ConnectorConfig",
     "ExtractionResult",
+    "LoadResult",
     "TransformationResult",
     "ContractValidator",
     "ConnectorRegistry",

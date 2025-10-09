@@ -253,15 +253,21 @@ class QualityCheckSensor(BaseSensorOperator):
     def _check_load_quality(self, load_result: Dict[str, Any]) -> float:
         """Check load quality."""
         try:
-            score = 1.0
-            
-            # Check if load was successful
             if not load_result:
-                score *= 0.0
+                return 0.0
             
-            # Check for errors
-            if isinstance(load_result, dict) and 'error' in load_result:
-                score *= 0.0
+            records_attempted = load_result.get('records_attempted', 0)
+            records_failed = load_result.get('records_failed', 0)
+            errors = load_result.get('errors', [])
+            
+            if records_attempted == 0:
+                return 1.0  # Nothing to load is treated as success
+            
+            failure_ratio = records_failed / max(1, records_attempted)
+            score = max(0.0, 1.0 - failure_ratio)
+            
+            if errors:
+                score *= 0.7
             
             return score
             

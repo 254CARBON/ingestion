@@ -5,17 +5,16 @@ This module provides a Kafka producer implementation with Schema Registry integr
 for publishing connector data to Kafka topics.
 """
 
-import asyncio
 import json
-import logging
-from typing import Any, Dict, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import structlog
 from confluent_kafka import Producer
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
-from confluent_kafka.serialization import SerializationContext, MessageField
+from confluent_kafka.serialization import MessageField, SerializationContext
 
 from .exceptions import ConnectorError
 
@@ -33,7 +32,10 @@ class KafkaProducerService:
         bootstrap_servers: str = "localhost:9092",
         schema_registry_url: str = "http://localhost:8081",
         output_topic: str = "ingestion.raw.v1",
-        **kwargs
+        *,
+        use_event_envelope: bool = True,
+        default_producer: str = "connector",
+        **kwargs: Any,
     ):
         """
         Initialize the Kafka producer service.
@@ -42,25 +44,30 @@ class KafkaProducerService:
             bootstrap_servers: Kafka bootstrap servers
             schema_registry_url: Schema Registry URL
             output_topic: Output topic name
+            use_event_envelope: Whether to wrap payloads in the standard event envelope
+            default_producer: Default producer identifier applied to events
             **kwargs: Additional producer configuration
         """
         self.bootstrap_servers = bootstrap_servers
         self.schema_registry_url = schema_registry_url
         self.output_topic = output_topic
+        self.use_event_envelope = use_event_envelope
+        self.default_producer = default_producer
         self.logger = structlog.get_logger(__name__)
         
         # Producer configuration
-        self.producer_config = {
-            'bootstrap.servers': bootstrap_servers,
-            'client.id': f"connector-producer-{uuid4().hex[:8]}",
-            'acks': 'all',
-            'retries': 3,
-            'retry.backoff.ms': 1000,
-            'batch.size': 16384,
-            'linger.ms': 10,
-            'compression.type': 'snappy',
-            **kwargs
+        self.producer_config: Dict[str, Any] = {
+            "bootstrap.servers": bootstrap_servers,
+            "client.id": f"connector-producer-{uuid4().hex[:8]}",
+            "acks": "all",
+            "retries": 3,
+            "retry.backoff.ms": 1000,
+            "batch.size": 16384,
+            "linger.ms": 10,
+            "compression.type": "snappy",
+            **kwargs,
         }
+        self.client_id = self.producer_config["client.id"]
         
         self.producer: Optional[Producer] = None
         self.schema_registry_client: Optional[SchemaRegistryClient] = None
@@ -70,17 +77,18 @@ class KafkaProducerService:
     async def start(self) -> None:
         """Start the Kafka producer service."""
         try:
-            self.logger.info("Starting Kafka producer service", 
-                           bootstrap_servers=self.bootstrap_servers,
-                           output_topic=self.output_topic)
+            self.logger.info(
+                "Starting Kafka producer service",
+                bootstrap_servers=self.bootstrap_servers,
+                output_topic=self.output_topic,
+                client_id=self.client_id,
+            )
             
             # Initialize producer
             self.producer = Producer(self.producer_config)
             
             # Initialize Schema Registry client
-            self.schema_registry_client = SchemaRegistryClient({
-                'url': self.schema_registry_url
-            })
+            self.schema_registry_client = SchemaRegistryClient({"url": self.schema_registry_url})
             
             # Create Avro serializer (will be set up when schema is available)
             self.avro_serializer = None
@@ -88,9 +96,9 @@ class KafkaProducerService:
             self._is_started = True
             self.logger.info("Kafka producer service started successfully")
             
-        except Exception as e:
-            self.logger.error("Failed to start Kafka producer service", error=str(e))
-            raise ConnectorError(f"Failed to start Kafka producer: {e}") from e
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Failed to start Kafka producer service", error=str(exc))
+            raise ConnectorError(f"Failed to start Kafka producer: {exc}") from exc
     
     async def stop(self) -> None:
         """Stop the Kafka producer service."""
@@ -98,7 +106,7 @@ class KafkaProducerService:
             return
         
         try:
-            self.logger.info("Stopping Kafka producer service")
+            self.logger.info("Stopping Kafka producer service", client_id=self.client_id)
             
             if self.producer:
                 # Flush any remaining messages
@@ -111,8 +119,8 @@ class KafkaProducerService:
             
             self.logger.info("Kafka producer service stopped")
             
-        except Exception as e:
-            self.logger.error("Error stopping Kafka producer service", error=str(e))
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.logger.error("Error stopping Kafka producer service", error=str(exc))
     
     def _setup_avro_serializer(self, schema_str: str) -> None:
         """
@@ -125,30 +133,69 @@ class KafkaProducerService:
             if not self.schema_registry_client:
                 raise ConnectorError("Schema Registry client not initialized")
             
+            subject = f"{self.output_topic}-value"
+            
             # Register schema if not exists
             try:
-                schema = self.schema_registry_client.get_latest_version(
-                    f"{self.output_topic}-value"
-                )
-                self.logger.info("Using existing schema", schema_id=schema.schema_id)
+                schema = self.schema_registry_client.get_latest_version(subject)
+                self.logger.info("Using existing schema", schema_id=schema.schema_id, subject=subject)
             except Exception:
-                # Schema doesn't exist, register it
-                schema = self.schema_registry_client.register_schema(
-                    f"{self.output_topic}-value",
-                    schema_str
-                )
-                self.logger.info("Registered new schema", schema_id=schema.schema_id)
+                schema = self.schema_registry_client.register_schema(subject, schema_str)
+                self.logger.info("Registered new schema", schema_id=schema.schema_id, subject=subject)
             
             # Create Avro serializer
             self.avro_serializer = AvroSerializer(
                 self.schema_registry_client,
                 schema_str,
-                conf={'auto.register.schemas': False}
+                conf={"auto.register.schemas": False},
             )
             
-        except Exception as e:
-            self.logger.error("Failed to setup Avro serializer", error=str(e))
-            raise ConnectorError(f"Failed to setup Avro serializer: {e}") from e
+        except Exception as exc:
+            self.logger.error("Failed to setup Avro serializer", error=str(exc))
+            raise ConnectorError(f"Failed to setup Avro serializer: {exc}") from exc
+    
+    def _ensure_defaults(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure required event fields are populated without mutating the input."""
+        prepared = dict(record)
+        
+        if not prepared.get("event_id"):
+            prepared["event_id"] = str(uuid4())
+        
+        if not prepared.get("trace_id"):
+            prepared["trace_id"] = str(uuid4())
+        
+        occurred_at = prepared.get("occurred_at")
+        if not isinstance(occurred_at, int):
+            prepared["occurred_at"] = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        
+        prepared.setdefault("tenant_id", "default")
+        prepared.setdefault("schema_version", "1.0.0")
+        prepared.setdefault("producer", self.default_producer)
+        
+        return prepared
+    
+    def _prepare_payload(self, record: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+        """
+        Prepare payload for publishing, applying envelope if required.
+        
+        Returns:
+            Tuple of (payload, event_id)
+        """
+        prepared = self._ensure_defaults(record)
+        
+        if self.use_event_envelope:
+            envelope = {
+                "event_id": prepared["event_id"],
+                "trace_id": prepared["trace_id"],
+                "occurred_at": prepared["occurred_at"],
+                "tenant_id": prepared["tenant_id"],
+                "schema_version": prepared["schema_version"],
+                "producer": prepared["producer"],
+                "payload": prepared,
+            }
+            return envelope, envelope["event_id"]
+        
+        return prepared, prepared["event_id"]
     
     async def publish_record(self, record: Dict[str, Any], schema_str: Optional[str] = None) -> bool:
         """
@@ -164,52 +211,43 @@ class KafkaProducerService:
         if not self._is_started or not self.producer:
             raise ConnectorError("Producer not started")
         
+        payload, event_id = self._prepare_payload(record)
+        
         try:
-            # Add envelope fields
-            envelope = {
-                "event_id": str(uuid4()),
-                "trace_id": str(uuid4()),
-                "occurred_at": int(asyncio.get_event_loop().time() * 1000000),  # microseconds
-                "tenant_id": record.get("tenant_id", "default"),
-                "schema_version": "1.0.0",
-                "producer": "connector",
-                "payload": record
-            }
-            
-            # Serialize message
             if schema_str and self.avro_serializer is None:
                 self._setup_avro_serializer(schema_str)
             
             if self.avro_serializer:
-                # Use Avro serialization
-                serialized_value = self.avro_serializer(
-                    envelope,
-                    SerializationContext(self.output_topic, MessageField.VALUE)
+                message_value = self.avro_serializer(
+                    payload,
+                    SerializationContext(self.output_topic, MessageField.VALUE),
                 )
-                message_value = serialized_value
             else:
-                # Fallback to JSON serialization
-                message_value = json.dumps(envelope).encode('utf-8')
+                message_value = json.dumps(payload, default=str).encode("utf-8")
             
-            # Publish message
-            future = self.producer.produce(
+            self.producer.produce(
                 topic=self.output_topic,
                 value=message_value,
-                key=envelope["event_id"].encode('utf-8'),
-                callback=self._delivery_callback
+                key=event_id.encode("utf-8"),
+                callback=self._delivery_callback,
             )
             
-            # Wait for delivery confirmation
+            # Poll to trigger delivery callbacks
             self.producer.poll(0)
             
-            self.logger.debug("Record published successfully", 
-                            event_id=envelope["event_id"],
-                            topic=self.output_topic)
+            self.logger.debug(
+                "Record published successfully",
+                topic=self.output_topic,
+                event_id=event_id,
+                use_envelope=self.use_event_envelope,
+            )
             return True
-            
-        except Exception as e:
-            self.logger.error("Failed to publish record", error=str(e), record=record)
-            return False
+        
+        except ConnectorError:
+            raise
+        except Exception as exc:
+            self.logger.error("Failed to publish record", error=str(exc), topic=self.output_topic)
+            raise ConnectorError(f"Failed to publish record: {exc}") from exc
     
     def _delivery_callback(self, err, msg) -> None:
         """
@@ -222,12 +260,18 @@ class KafkaProducerService:
         if err is not None:
             self.logger.error("Message delivery failed", error=str(err), topic=msg.topic())
         else:
-            self.logger.debug("Message delivered successfully", 
-                            topic=msg.topic(), 
-                            partition=msg.partition(),
-                            offset=msg.offset())
+            self.logger.debug(
+                "Message delivered successfully",
+                topic=msg.topic(),
+                partition=msg.partition(),
+                offset=msg.offset(),
+            )
     
-    async def publish_batch(self, records: list[Dict[str, Any]], schema_str: Optional[str] = None) -> int:
+    async def publish_batch(
+        self,
+        records: List[Dict[str, Any]],
+        schema_str: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Publish a batch of records to Kafka.
         
@@ -236,33 +280,61 @@ class KafkaProducerService:
             schema_str: Avro schema string (optional)
             
         Returns:
-            int: Number of successfully published records
+            Dict[str, Any]: Summary containing success/failure counts and errors.
         """
         if not self._is_started or not self.producer:
             raise ConnectorError("Producer not started")
         
-        success_count = 0
+        summary = {
+            "total_count": len(records),
+            "success_count": 0,
+            "failure_count": 0,
+            "errors": [],
+        }
+        
+        if len(records) == 0:
+            return summary
         
         try:
-            self.logger.info("Publishing batch of records", 
-                           count=len(records), 
-                           topic=self.output_topic)
+            if schema_str and self.avro_serializer is None:
+                self._setup_avro_serializer(schema_str)
             
-            for record in records:
-                if await self.publish_record(record, schema_str):
-                    success_count += 1
+            self.logger.info(
+                "Publishing batch of records",
+                topic=self.output_topic,
+                count=len(records),
+                client_id=self.client_id,
+            )
             
-            # Flush to ensure all messages are sent
+            for idx, record in enumerate(records):
+                try:
+                    await self.publish_record(record, schema_str=None)
+                    summary["success_count"] += 1
+                except ConnectorError as exc:
+                    summary["failure_count"] += 1
+                    summary["errors"].append(f"Record {idx}: {exc}")
+                except Exception as exc:  # pragma: no cover - defensive
+                    summary["failure_count"] += 1
+                    summary["errors"].append(f"Record {idx}: {exc}")
+            
             self.producer.flush(timeout=10)
             
-            self.logger.info("Batch publishing completed", 
-                           success_count=success_count,
-                           total_count=len(records))
+            self.logger.info(
+                "Batch publishing completed",
+                topic=self.output_topic,
+                total=summary["total_count"],
+                success=summary["success_count"],
+                failure=summary["failure_count"],
+            )
             
-        except Exception as e:
-            self.logger.error("Failed to publish batch", error=str(e))
+        except ConnectorError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.error("Failed to publish batch", error=str(exc))
+            summary["errors"].append(str(exc))
+            summary["failure_count"] = summary["total_count"]
         
-        return success_count
+        return summary
     
     def get_metrics(self) -> Dict[str, Any]:
         """
@@ -280,8 +352,9 @@ class KafkaProducerService:
                 "topics": list(metrics.topics.keys()),
                 "is_started": self._is_started,
                 "bootstrap_servers": self.bootstrap_servers,
-                "output_topic": self.output_topic
+                "output_topic": self.output_topic,
+                "client_id": self.client_id,
             }
-        except Exception as e:
-            self.logger.error("Failed to get producer metrics", error=str(e))
-            return {"error": str(e)}
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.error("Failed to get producer metrics", error=str(exc))
+            return {"error": str(exc)}

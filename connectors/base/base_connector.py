@@ -6,10 +6,13 @@ including extraction, transformation, and loading operations.
 """
 
 import asyncio
+import inspect
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
@@ -81,6 +84,22 @@ class TransformationResult(BaseModel):
         }
 
 
+class LoadResult(BaseModel):
+    """Result of data load / publish operation."""
+    
+    records_attempted: int = Field(..., description="Total records attempted to publish")
+    records_published: int = Field(..., description="Number of records successfully published")
+    records_failed: int = Field(..., description="Number of records that failed to publish")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Load metadata and timings")
+    errors: List[str] = Field(default_factory=list, description="List of publish errors")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    @property
+    def success(self) -> bool:
+        """Return True when all attempted records were published."""
+        return self.records_failed == 0
+
+
 class BaseConnector(ABC):
     """
     Abstract base class for all data connectors.
@@ -98,6 +117,7 @@ class BaseConnector(ABC):
         """
         self.config = config
         self.logger = setup_logging(self.__class__.__name__)
+        self._last_run_details: Dict[str, Any] = {}
         self._validate_config()
     
     def _validate_config(self) -> None:
@@ -147,7 +167,25 @@ class BaseConnector(ABC):
         """
         pass
     
-    async def load(self, transformation_result: TransformationResult) -> bool:
+    def _resolve_schema_path(self) -> Optional[Path]:
+        """
+        Resolve the schema path for the connector.
+        
+        Returns:
+            Optional[Path]: Path to schema file if found
+        """
+        schema_path = Path(self.config.schema)
+        if schema_path.is_file():
+            return schema_path
+        
+        connector_dir = Path(inspect.getfile(self.__class__)).resolve().parent
+        candidate = connector_dir / schema_path
+        if candidate.is_file():
+            return candidate
+        
+        return None
+    
+    async def load(self, transformation_result: TransformationResult) -> LoadResult:
         """
         Load transformed data into the target system.
         
@@ -157,42 +195,98 @@ class BaseConnector(ABC):
             transformation_result: Result from the transform operation
             
         Returns:
-            bool: True if loading succeeded, False otherwise
+            LoadResult: Structured load result with metrics and errors
         """
-        try:
-            from .kafka_producer import KafkaProducerService
-            
+        from .kafka_producer import KafkaProducerService
+        
+        start_time = time.perf_counter()
+        records = transformation_result.data or []
+        total_records = len(records)
+        errors: List[str] = []
+        schema_str: Optional[str] = None
+        
+        if total_records == 0:
+            metadata = {
+                "output_topic": self.config.output_topic,
+                "duration_seconds": 0.0,
+                "load_method": "kafka",
+                "schema_applied": False,
+            }
+            return LoadResult(
+                records_attempted=0,
+                records_published=0,
+                records_failed=0,
+                metadata=metadata,
+            )
+        
+        schema_path = self._resolve_schema_path()
+        if schema_path:
+            try:
+                schema_str = schema_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                error_msg = f"Failed to read schema at {schema_path}: {exc}"
+                self.logger.error(error_msg)
+                errors.append(error_msg)
+        else:
+            self.logger.warning(
+                "Schema path could not be resolved; falling back to JSON publishing",
+                connector=self.config.name,
+                schema=self.config.schema,
+            )
+        
+        producer = KafkaProducerService(
+            bootstrap_servers=self.config.kafka_bootstrap_servers,
+            schema_registry_url=self.config.schema_registry_url,
+            output_topic=self.config.output_topic,
+            use_event_envelope=False,
+        )
+        
+        await producer.start()
+        
+        publish_summary = await producer.publish_batch(
+            records,
+            schema_str=schema_str,
+        )
+        
+        await producer.stop()
+        
+        duration = time.perf_counter() - start_time
+        
+        errors.extend(publish_summary.get("errors", []))
+        
+        load_metadata = {
+            "output_topic": self.config.output_topic,
+            "duration_seconds": duration,
+            "load_method": "kafka",
+            "schema_applied": bool(schema_str),
+            "producer_client_id": producer.client_id,
+        }
+        
+        load_result = LoadResult(
+            records_attempted=total_records,
+            records_published=publish_summary.get("success_count", 0),
+            records_failed=publish_summary.get("failure_count", total_records - publish_summary.get("success_count", 0)),
+            metadata=load_metadata,
+            errors=errors,
+        )
+        
+        if load_result.records_failed:
+            self.logger.error(
+                "Failed to publish some records",
+                connector=self.config.name,
+                topic=self.config.output_topic,
+                failed=load_result.records_failed,
+                errors=errors[:5],
+            )
+        else:
             self.logger.info(
-                f"Loading {transformation_result.record_count} records to topic {self.config.output_topic}"
+                "Successfully loaded all records",
+                connector=self.config.name,
+                topic=self.config.output_topic,
+                count=load_result.records_published,
             )
-            
-            # Initialize Kafka producer
-            producer = KafkaProducerService(
-                bootstrap_servers=self.config.kafka_bootstrap_servers,
-                schema_registry_url=self.config.schema_registry_url,
-                output_topic=self.config.output_topic
-            )
-            
-            await producer.start()
-            
-            # Publish each record
-            success_count = 0
-            for record in transformation_result.data:
-                try:
-                    await producer.publish_record(record)
-                    success_count += 1
-                except Exception as e:
-                    self.logger.error(f"Failed to publish record: {e}")
-                    continue
-            
-            await producer.stop()
-            
-            self.logger.info(f"Successfully loaded {success_count}/{transformation_result.record_count} records")
-            return success_count == transformation_result.record_count
-            
-        except Exception as e:
-            self.logger.error(f"Failed to load data: {e}")
-            return False
+        
+        return load_result
     
     async def run(self, **kwargs) -> bool:
         """
@@ -231,17 +325,33 @@ class BaseConnector(ABC):
             self.logger.info(f"Transformed {transformation_result.record_count} records")
             
             # Load data
-            success = await self.load(transformation_result)
+            load_result = await self.load(transformation_result)
             
-            if success:
-                self.logger.info(f"Connector {self.config.name} completed successfully")
-            else:
-                self.logger.error(f"Connector {self.config.name} failed during loading")
+            self._last_run_details = {
+                "extraction_result": extraction_result,
+                "transformation_result": transformation_result,
+                "load_result": load_result,
+            }
             
-            return success
+            if load_result.success:
+                self.logger.info(
+                    "Connector completed successfully",
+                    connector=self.config.name,
+                    published=load_result.records_published,
+                )
+                return True
+            
+            self.logger.error(
+                "Connector completed with load failures",
+                connector=self.config.name,
+                published=load_result.records_published,
+                failed=load_result.records_failed,
+            )
+            return False
             
         except Exception as e:
             self.logger.error(f"Connector {self.config.name} failed: {e}")
+            self._last_run_details = {}
             return False
     
     def get_health_status(self) -> Dict[str, Any]:
@@ -276,3 +386,11 @@ class BaseConnector(ABC):
             "enabled": self.config.enabled,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+    
+    async def cleanup(self) -> None:
+        """
+        Cleanup connector resources.
+        
+        Subclasses can override to release open connections or sessions.
+        """
+        return None
