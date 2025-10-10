@@ -12,9 +12,9 @@ from .config import MISOConnectorConfig
 
 __all__ = [
     "MISOExtractor",
-    "MISOTransform", 
+    "MISOTransform",
     "MISOConnector",
     "MISOConnectorConfig",
 ]
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"

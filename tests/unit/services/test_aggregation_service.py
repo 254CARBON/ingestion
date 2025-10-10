@@ -8,12 +8,11 @@ from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
 import statistics
 
-from services.service-aggregation.src.core.aggregator import (
-    AggregationService, 
-    AggregationResult,
-    OHLCBar,
-    RollingMetric,
-    CurvePreStage
+from ingestion.tests.utils.import_helpers import import_from_services
+
+AggregationService, AggregationResult, OHLCBar, RollingMetric, CurvePreStage = import_from_services(
+    "services.service-aggregation.src.core.aggregator",
+    ["AggregationService", "AggregationResult", "OHLCBar", "RollingMetric", "CurvePreStage"]
 )
 
 
@@ -23,7 +22,7 @@ class TestAggregationService:
     @pytest.fixture
     def aggregation_service(self):
         """Create aggregation service."""
-        with patch('services.service-aggregation.src.core.aggregator.open') as mock_open:
+        with patch('services.service_aggregation.src.core.aggregator.open') as mock_open:
             mock_open.return_value.__enter__.return_value.read.return_value = """
 ohlc_policies:
   daily:

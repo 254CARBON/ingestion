@@ -1,0 +1,107 @@
+name: "pjm"
+description: "PJM market data connector for LMP, RPM, TCR, and outages via Data Miner API"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  # Authentication (use either api_key OR client_id + client_secret)
+  api_key: "${PJM_API_KEY}"
+  # client_id: "${PJM_CLIENT_ID}"
+  # client_secret: "${PJM_CLIENT_SECRET}"
+
+  # API endpoints
+  base_url: "https://api.pjm.com/api/v1"
+  data_miner_url: "https://dataminer2.pjm.com"
+
+  # Data endpoints
+  lmp_endpoint: "/da_hrl_lmps"
+  rtm_lmp_endpoint: "/rt_hrl_lmps"
+  rpm_endpoint: "/capacity_market_results"
+  tcr_endpoint: "/tcr_auction_results"
+  outages_endpoint: "/outages"
+
+  # Report configurations
+  report_configs:
+    lmp:
+      report_type: "LMP"
+      frequency: "hourly"
+      data_items: ["lmp", "mcc", "mlc"]
+      download_format: "csv"
+    rtm_lmp:
+      report_type: "RT_LMP"
+      frequency: "hourly"
+      data_items: ["lmp", "mcc", "mlc"]
+      download_format: "csv"
+    rpm:
+      report_type: "RPM"
+      frequency: "auction"
+      data_items: ["clearing_price", "capacity_obligations"]
+      download_format: "csv"
+    tcr:
+      report_type: "TCR"
+      frequency: "auction"
+      data_items: ["auction_price", "awarded_quantity"]
+      download_format: "csv"
+    outages:
+      report_type: "OUTAGES"
+      frequency: "real_time"
+      data_items: ["outage_start", "outage_end", "capacity_mw"]
+      download_format: "csv"
+
+  # Extraction parameters
+  default_start_hours_back: 24
+  default_market_run_id: "DAM"
+
+  # Rate limiting
+  requests_per_minute: 30
+  retry_attempts: 3
+  retry_delay_seconds: 10
+
+  # Data processing
+  batch_size: 1000
+  max_concurrent_requests: 3
+
+# Supported data types
+supported_data_types:
+  - "lmp"          # Day-Ahead Locational Marginal Prices
+  - "rtm_lmp"      # Real-Time Locational Marginal Prices
+  - "rpm"          # Reliability Pricing Model auction results
+  - "tcr"          # Transmission Congestion Rights auction results
+  - "outages"      # Generation outages
+
+# Schedule configuration (for Airflow DAGs)
+schedule:
+  # Run hourly for LMP data
+  lmp_rtm_lmp: "0 * * * *"
+
+  # Run daily for RPM (auction results)
+  rpm: "0 2 * * *"
+
+  # Run daily for TCR (auction results)
+  tcr: "0 3 * * *"
+
+  # Run every 6 hours for outages
+  outages: "0 */6 * * *"
+
+# Quality checks
+quality_checks:
+  - name: "record_count_check"
+    enabled: true
+    min_records: 1
+
+  - name: "timestamp_check"
+    enabled: true
+    max_age_hours: 2
+
+  - name: "price_range_check"
+    enabled: true
+    min_price: -100
+    max_price: 10000
+
+# Output topics
+output_topics:
+  lmp: "normalized.market.ticks.v1"
+  rtm_lmp: "normalized.market.ticks.v1"
+  rpm: "normalized.market.ticks.v1"
+  tcr: "normalized.market.ticks.v1"
+  outages: "normalized.market.ticks.v1"

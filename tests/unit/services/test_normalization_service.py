@@ -7,9 +7,9 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
 
-from services.service-normalization.src.core.normalizer import NormalizationService, NormalizationResult
-from services.service-normalization.src.core.rules_engine import RulesEngine
-from services.service-normalization.src.core.validators import ValidationService, ValidationResult
+from services.service_normalization.src.core.normalizer import NormalizationService, NormalizationResult
+from services.service_normalization.src.core.rules_engine import RulesEngine
+from services.service_normalization.src.core.validators import ValidationService, ValidationResult
 
 
 class TestNormalizationService:
@@ -18,7 +18,7 @@ class TestNormalizationService:
     @pytest.fixture
     def normalization_service(self):
         """Create normalization service."""
-        with patch('services.service-normalization.src.core.normalizer.open') as mock_open:
+        with patch('services.service_normalization.src.core.normalizer.open') as mock_open:
             mock_open.return_value.__enter__.return_value.read.return_value = """
 markets:
   CAISO:
@@ -327,6 +327,39 @@ global:
         score = normalization_service._calculate_validity(invalid_data)
         assert score < 1.0
 
+    def test_validity_accepts_new_miso_data_types(self, normalization_service):
+        """Ensure new MISO data types are treated as valid."""
+        base_record = {
+            "event_id": "evt-1",
+            "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            "tenant_id": "default",
+            "schema_version": "1.0.0",
+            "producer": "test-producer",
+            "market": "MISO",
+        }
+
+        lmp_record = {
+            **base_record,
+            "data_type": "lmp",
+            "node": "HUB_A",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "lmp_usd_per_mwh": 30.5,
+        }
+
+        pra_record = {
+            **base_record,
+            "data_type": "pra",
+            "auction": "2024 PRA R1",
+            "planning_zone": "ZONE_1",
+            "clearing_price_usd_per_mw_day": 150.25,
+        }
+
+        lmp_score = normalization_service._calculate_validity(lmp_record)
+        pra_score = normalization_service._calculate_validity(pra_record)
+
+        assert lmp_score >= 0.9
+        assert pra_score >= 0.9
+
     def test_quality_score_calculation(self, normalization_service):
         """Test overall quality score calculation."""
         # High quality data
@@ -386,7 +419,7 @@ class TestRulesEngine:
     @pytest.fixture
     def rules_engine(self):
         """Create rules engine."""
-        with patch('services.service-normalization.src.core.rules_engine.open') as mock_open:
+        with patch('services.service_normalization.src.core.rules_engine.open') as mock_open:
             mock_open.return_value.__enter__.return_value.read.return_value = """
 markets:
   CAISO:
@@ -487,7 +520,7 @@ class TestValidationService:
     @pytest.fixture
     def validation_service(self):
         """Create validation service."""
-        with patch('services.service-normalization.src.core.validators.open') as mock_open:
+        with patch('services.service_normalization.src.core.validators.open') as mock_open:
             mock_open.return_value.__enter__.return_value.read.return_value = """
 markets:
   CAISO:

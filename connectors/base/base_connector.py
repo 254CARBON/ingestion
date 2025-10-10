@@ -6,6 +6,7 @@ including extraction, transformation, and loading operations.
 """
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -119,6 +120,244 @@ class BaseConnector(ABC):
         self.logger = setup_logging(self.__class__.__name__)
         self._last_run_details: Dict[str, Any] = {}
         self._validate_config()
+
+    def _producer_base_name(self) -> str:
+        """Return canonical producer name without version."""
+        return f"{self.config.name}-connector"
+
+    def _normalize_producer(self, producer: Optional[str]) -> str:
+        """
+        Ensure producer identifier follows `<name>@semver` convention.
+        """
+        base = (producer or self._producer_base_name()).strip()
+        version = getattr(self.config, "version", "1.0.0")
+        if "@" in base:
+            return base
+        return f"{base}@{version}"
+
+    @staticmethod
+    def _coerce_microseconds(value: Any, default: Optional[int] = None) -> int:
+        """
+        Convert various timestamp representations into microseconds.
+        """
+        if value is None:
+            if default is not None:
+                return default
+            raise ValueError("Timestamp value is required")
+
+        if isinstance(value, (int, float)):
+            return int(value)
+
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                if default is not None:
+                    return default
+                raise ValueError("Blank timestamp string")
+
+            # Normalise common timezone suffixes
+            if cleaned.endswith("Z"):
+                cleaned = cleaned[:-1] + "+00:00"
+            if cleaned.endswith("-00:00"):
+                cleaned = cleaned[:-6] + "+00:00"
+
+            dt = datetime.fromisoformat(cleaned)
+            return int(dt.timestamp() * 1_000_000)
+
+        raise ValueError(f"Unsupported timestamp type: {type(value)}")
+
+    @staticmethod
+    def _coerce_optional_int(value: Any) -> Optional[int]:
+        """Best-effort conversion of an optional value to int."""
+        if value in (None, "", "null"):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _is_ingestion_event(record: Dict[str, Any]) -> bool:
+        """
+        Check whether the record already matches the ingestion event envelope.
+        """
+        required = {
+            "event_id",
+            "trace_id",
+            "schema_version",
+            "tenant_id",
+            "producer",
+            "occurred_at",
+            "ingested_at",
+            "payload",
+        }
+        return required.issubset(record.keys())
+
+    def _build_metadata_map(self, source: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Convert remaining record fields into the metadata map expected by the schema.
+        """
+        metadata: Dict[str, str] = {}
+        for key, value in source.items():
+            if value is None:
+                continue
+            try:
+                if isinstance(value, (dict, list)):
+                    metadata[str(key)] = json.dumps(value, default=str)
+                else:
+                    metadata[str(key)] = str(value)
+            except Exception:
+                metadata[str(key)] = str(value)
+        return metadata
+
+    def _ensure_ingestion_event(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Transform arbitrary connector output into the standard ingestion.*.raw.v1 envelope.
+        """
+        if self._is_ingestion_event(record):
+            return record
+
+        working = dict(record)
+        now_us = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+
+        event_id = str(working.pop("event_id", uuid4()))
+        trace_id = str(working.pop("trace_id", uuid4()))
+        schema_version = str(working.pop("schema_version", "1.0.0"))
+        tenant_id = str(working.pop("tenant_id", "default"))
+
+        occurred_raw = working.pop("occurred_at", None)
+        ingested_raw = working.pop("ingested_at", None)
+        received_raw = working.pop("received_at", None)
+
+        try:
+            occurred_at = self._coerce_microseconds(occurred_raw, default=now_us)
+        except ValueError:
+            self.logger.debug("Falling back to current timestamp for occurred_at", record=record)
+            occurred_at = now_us
+
+        try:
+            ingested_at = self._coerce_microseconds(ingested_raw, default=now_us)
+        except ValueError:
+            self.logger.debug("Falling back to current timestamp for ingested_at", record=record)
+            ingested_at = now_us
+
+        try:
+            received_at = self._coerce_microseconds(received_raw, default=ingested_at)
+        except ValueError:
+            received_at = ingested_at
+
+        producer = self._normalize_producer(working.pop("producer", None))
+        source_system = working.pop("source", None) or self._producer_base_name()
+        market = str(working.pop("market", self.config.market or "UNKNOWN"))
+
+        symbol_value = working.pop("symbol", None)
+        instrument_id = working.pop("instrument_id", None)
+        trade_id = working.pop("trade_id", None)
+        settlement_point = working.pop("settlement_point", None)
+        delivery_location = working.pop("delivery_location", None)
+        hub = working.pop("hub", None)
+        market_id = working.pop("market_id", None)
+        curve_type = working.pop("curve_type", None)
+
+        symbol_candidates = [
+            symbol_value,
+            instrument_id,
+            trade_id,
+            settlement_point,
+            delivery_location,
+            hub,
+            market_id,
+            curve_type,
+        ]
+        symbol = next((str(val) for val in symbol_candidates if val not in (None, "")), market)
+
+        sequence_val = working.pop("sequence", None)
+        if sequence_val is None:
+            sequence_val = working.pop("seq", None)
+        if sequence_val is None:
+            sequence_val = working.pop("offset", None)
+        sequence = self._coerce_optional_int(sequence_val)
+
+        retry_raw = working.pop("retry_count", None)
+        if retry_raw is None:
+            retry_raw = working.pop("retries", None)
+        try:
+            retry_count = int(retry_raw) if retry_raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            retry_count = 0
+
+        metadata_field = working.pop("metadata", None)
+        encoding = working.pop("encoding", None) or "json"
+        checksum_value = working.pop("checksum", None)
+
+        raw_payload_value = working.pop("raw_payload", None)
+        raw_data_value = working.pop("raw_data", None)
+        if raw_payload_value is not None:
+            if isinstance(raw_payload_value, str):
+                raw_payload = raw_payload_value
+            else:
+                raw_payload = json.dumps(raw_payload_value, default=str)
+        elif raw_data_value is not None:
+            if isinstance(raw_data_value, str):
+                raw_payload = raw_data_value
+            else:
+                raw_payload = json.dumps(raw_data_value, default=str)
+        else:
+            raw_payload = json.dumps(record, default=str)
+
+        metadata_map = {}
+        if isinstance(metadata_field, dict):
+            metadata_map.update(self._build_metadata_map(metadata_field))
+        elif metadata_field not in (None, "", {}):
+            metadata_map["metadata"] = str(metadata_field)
+
+        # Include any remaining fields as metadata for downstream enrichment
+        leftover_metadata = self._build_metadata_map(working)
+        metadata_map.update(leftover_metadata)
+
+        if instrument_id is not None:
+            metadata_map.setdefault("instrument_id", str(instrument_id))
+        if trade_id is not None:
+            metadata_map.setdefault("trade_id", str(trade_id))
+        if settlement_point is not None:
+            metadata_map.setdefault("settlement_point", str(settlement_point))
+        if delivery_location is not None:
+            metadata_map.setdefault("delivery_location", str(delivery_location))
+        if hub is not None:
+            metadata_map.setdefault("hub", str(hub))
+        if market_id is not None:
+            metadata_map.setdefault("market_id", str(market_id))
+        if curve_type is not None:
+            metadata_map.setdefault("curve_type", str(curve_type))
+
+        if not metadata_map:
+            metadata_map = {}
+
+        checksum = checksum_value or hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
+
+        event = {
+            "event_id": event_id,
+            "trace_id": trace_id,
+            "schema_version": schema_version,
+            "tenant_id": tenant_id,
+            "producer": producer,
+            "occurred_at": occurred_at,
+            "ingested_at": ingested_at,
+            "payload": {
+                "source_system": str(source_system),
+                "market": str(market),
+                "symbol": str(symbol),
+                "sequence": sequence,
+                "received_at": received_at,
+                "raw_payload": raw_payload,
+                "encoding": encoding,
+                "metadata": metadata_map,
+                "retry_count": retry_count,
+                "checksum": checksum,
+            },
+        }
+
+        return event
     
     def _validate_config(self) -> None:
         """Validate connector configuration."""
@@ -200,12 +439,12 @@ class BaseConnector(ABC):
         from .kafka_producer import KafkaProducerService
         
         start_time = time.perf_counter()
-        records = transformation_result.data or []
-        total_records = len(records)
+        raw_records = transformation_result.data or []
+        total_input_records = len(raw_records)
         errors: List[str] = []
         schema_str: Optional[str] = None
         
-        if total_records == 0:
+        if total_input_records == 0:
             metadata = {
                 "output_topic": self.config.output_topic,
                 "duration_seconds": 0.0,
@@ -217,6 +456,43 @@ class BaseConnector(ABC):
                 records_published=0,
                 records_failed=0,
                 metadata=metadata,
+            )
+
+        formatted_records: List[Dict[str, Any]] = []
+        conversion_errors: List[str] = []
+        
+        for idx, record in enumerate(raw_records):
+            try:
+                formatted_records.append(self._ensure_ingestion_event(record))
+            except Exception as exc:
+                error_msg = f"Record {idx}: {exc}"
+                conversion_errors.append(error_msg)
+                self.logger.error(
+                    "Failed to format record for ingestion",
+                    index=idx,
+                    error=str(exc),
+                    connector=self.config.name,
+                )
+        
+        errors.extend(conversion_errors)
+        conversion_failures = total_input_records - len(formatted_records)
+        
+        if not formatted_records:
+            duration = time.perf_counter() - start_time
+            load_metadata = {
+                "output_topic": self.config.output_topic,
+                "duration_seconds": duration,
+                "load_method": "kafka",
+                "schema_applied": False,
+                "producer_client_id": None,
+                "conversion_failures": conversion_failures,
+            }
+            return LoadResult(
+                records_attempted=total_input_records,
+                records_published=0,
+                records_failed=total_input_records,
+                metadata=load_metadata,
+                errors=errors,
             )
         
         schema_path = self._resolve_schema_path()
@@ -244,7 +520,7 @@ class BaseConnector(ABC):
         await producer.start()
         
         publish_summary = await producer.publish_batch(
-            records,
+            formatted_records,
             schema_str=schema_str,
         )
         
@@ -260,12 +536,13 @@ class BaseConnector(ABC):
             "load_method": "kafka",
             "schema_applied": bool(schema_str),
             "producer_client_id": producer.client_id,
+            "conversion_failures": conversion_failures,
         }
         
         load_result = LoadResult(
-            records_attempted=total_records,
+            records_attempted=total_input_records,
             records_published=publish_summary.get("success_count", 0),
-            records_failed=publish_summary.get("failure_count", total_records - publish_summary.get("success_count", 0)),
+            records_failed=conversion_failures + publish_summary.get("failure_count", 0),
             metadata=load_metadata,
             errors=errors,
         )

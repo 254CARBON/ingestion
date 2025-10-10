@@ -1,21 +1,104 @@
-name: miso
-version: 1.2.0
-market: MISO
-mode: batch
+name: "miso"
+description: "MISO connector for LMP, Ancillary Services, PRA, ARR, and TCR datasets via the Data Exchange APIs"
+version: "1.3.0"
+
+# Connector configuration
+config:
+  miso_api_key: "${MISO_API_KEY}"
+  miso_base_url: "${MISO_BASE_URL:https://data-exchange.misoenergy.org}"
+  miso_timeout: 60
+  miso_rate_limit: 60
+  miso_retry_attempts: 3
+  miso_backoff_factor: 2.0
+  default_start_hours_back: 6
+  batch_size: 1000
+  max_records: 5000
+  dataset_configs:
+    lmp:
+      path: "/services/api/miso-market/v1/lmp"
+      format: "json"
+      data_key: "items"
+      time_params:
+        start: "startTime"
+        end: "endTime"
+      time_format: "%Y-%m-%dT%H:%M:%SZ"
+      description: "Locational Marginal Prices (5-minute and hourly)"
+    as:
+      path: "/services/api/miso-market/v1/ancillary-services"
+      format: "json"
+      data_key: "items"
+      time_params:
+        start: "startTime"
+        end: "endTime"
+      time_format: "%Y-%m-%dT%H:%M:%SZ"
+      description: "Ancillary services clearing prices and MW"
+    pra:
+      path: "/services/api/miso-market/v1/planning-reserve-auction"
+      format: "json"
+      data_key: "items"
+      time_params:
+        start: "auctionStartDate"
+        end: "auctionEndDate"
+      time_format: "%Y-%m-%d"
+      description: "Planning Reserve Auction award results"
+    arr:
+      path: "/services/api/miso-market/v1/auction-revenue-rights"
+      format: "json"
+      data_key: "items"
+      time_params:
+        start: "auctionStartDate"
+        end: "auctionEndDate"
+      time_format: "%Y-%m-%d"
+      description: "Auction Revenue Rights allocations"
+    tcr:
+      path: "/services/api/miso-market/v1/transmission-congestion-rights"
+      format: "json"
+      data_key: "items"
+      time_params:
+        start: "auctionStartDate"
+        end: "auctionEndDate"
+      time_format: "%Y-%m-%d"
+      description: "Transmission Congestion Rights auction results"
+
+market: "MISO"
+mode: "batch"
 schedule: "0 */1 * * *"
 enabled: true
-output_topic: ingestion.miso.raw.v1
-schema: schemas/raw_miso_trade.avsc
+output_topic: "ingestion.miso.raw.v1"
+schema: "../../../specs/events/market/ingestion.market.ticks.raw.v1.avsc"
 retries: 3
 backoff_seconds: 30
-tenant_strategy: single
+tenant_strategy: "single"
 transforms:
   - name: sanitize_numeric
-  - name: standardize_timezone
-owner: platform
-description: "MISO market data connector for real-time and historical trading data"
+
 tags:
   - market-data
   - energy
-  - trading
-  - real-time
+  - lmp
+  - ancillary-services
+  - auction-results
+
+# Supported data types
+supported_data_types:
+  - "lmp"
+  - "as"
+  - "pra"
+  - "arr"
+  - "tcr"
+
+# Schedule overrides per dataset
+dataset_schedules:
+  lmp: "*/5 * * * *"    # Five-minute cadence
+  as: "0 * * * *"       # Hourly ancillary services
+  pra: "0 4 * * *"      # Daily polling for PRA updates
+  arr: "30 5 * * *"     # Daily ARR polling
+  tcr: "0 6 * * *"      # Daily TCR polling
+
+# Output topics (normalized)
+output_topics:
+  lmp: "normalized.market.ticks.v1"
+  as: "normalized.market.ticks.v1"
+  pra: "normalized.market.ticks.v1"
+  arr: "normalized.market.ticks.v1"
+  tcr: "normalized.market.ticks.v1"

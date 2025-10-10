@@ -194,14 +194,15 @@ class KafkaProducerService:
             topic = self.config.output_topics["ohlc"]
             
             for bar in ohlc_bars:
+                payload = self._model_to_payload(bar)
                 message_payload = {
                     "event_id": str(uuid4()),
                     "trace_id": getattr(bar, 'trace_id', None),
                     "occurred_at": bar.aggregation_timestamp.isoformat(),
-                    "tenant_id": "default",
+                    "tenant_id": getattr(bar, 'tenant_id', "default"),
                     "schema_version": "1.0.0",
                     "producer": "aggregation-service",
-                    "payload": bar.dict(),
+                    "payload": payload,
                     "metadata": {
                         "aggregation_type": "ohlc",
                         "bar_type": bar.bar_type,
@@ -230,14 +231,15 @@ class KafkaProducerService:
             topic = self.config.output_topics["rolling"]
             
             for metric in rolling_metrics:
+                payload = self._model_to_payload(metric)
                 message_payload = {
                     "event_id": str(uuid4()),
                     "trace_id": getattr(metric, 'trace_id', None),
                     "occurred_at": metric.calculation_timestamp.isoformat(),
-                    "tenant_id": "default",
+                    "tenant_id": getattr(metric, 'tenant_id', "default"),
                     "schema_version": "1.0.0",
                     "producer": "aggregation-service",
-                    "payload": metric.dict(),
+                    "payload": payload,
                     "metadata": {
                         "aggregation_type": "rolling_metrics",
                         "metric_type": metric.metric_type,
@@ -266,14 +268,15 @@ class KafkaProducerService:
             topic = self.config.output_topics["curve"]
             
             for curve in curve_prestage:
+                payload = self._model_to_payload(curve)
                 message_payload = {
                     "event_id": str(uuid4()),
                     "trace_id": getattr(curve, 'trace_id', None),
                     "occurred_at": curve.aggregation_timestamp.isoformat(),
-                    "tenant_id": "default",
+                    "tenant_id": getattr(curve, 'tenant_id', "default"),
                     "schema_version": "1.0.0",
                     "producer": "aggregation-service",
-                    "payload": curve.dict(),
+                    "payload": payload,
                     "metadata": {
                         "aggregation_type": "curve_prestage",
                         "curve_type": curve.curve_type,
@@ -381,3 +384,20 @@ class KafkaProducerService:
             "curve_published": 0
         }
 
+    @staticmethod
+    def _model_to_payload(model: Any) -> Any:
+        """
+        Convert a Pydantic model to a JSON-serializable payload.
+        
+        Args:
+            model: Model instance to convert
+        
+        Returns:
+            Any: JSON-serializable representation
+        """
+        if isinstance(model, BaseModel):
+            # Prefer model_dump for Pydantic v2 support
+            if hasattr(model, "model_dump"):
+                return model.model_dump(mode="json")
+            return json.loads(model.json())
+        return model

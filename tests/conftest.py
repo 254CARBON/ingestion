@@ -3,15 +3,23 @@ Pytest configuration and fixtures for 254Carbon Ingestion Platform tests.
 """
 
 import asyncio
-import pytest
-import tempfile
 import os
+import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, Any, List
 from unittest.mock import Mock, AsyncMock
 
+import pytest
+
 import structlog
 from pydantic import BaseModel
+
+# Ensure ingestion root is on sys.path for imports
+TESTS_ROOT = Path(__file__).resolve().parent
+INGESTION_ROOT = TESTS_ROOT.parent
+if str(INGESTION_ROOT) not in sys.path:
+    sys.path.insert(0, str(INGESTION_ROOT))
 
 # Configure structured logging for tests
 structlog.configure(

@@ -1,0 +1,96 @@
+name: "nyiso"
+description: "NYISO market data connector for LBMP, ICAP, and TCC via OASIS API"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  # Authentication (use either api_key OR username + password)
+  api_key: "${NYISO_API_KEY}"
+  # username: "${NYISO_USERNAME}"
+  # password: "${NYISO_PASSWORD}"
+
+  # API endpoints
+  base_url: "https://mis.nyiso.com/public/api"
+  data_url: "https://www.nyiso.com/OASIS/REST"
+
+  # Data endpoints
+  lbmp_endpoint: "/da_lbmp"
+  rtm_lbmp_endpoint: "/rt_lbmp"
+  icap_endpoint: "/icap_demand_curve"
+  tcc_endpoint: "/tcc_auction_results"
+
+  # Report configurations
+  report_configs:
+    lbmp:
+      report_type: "LBMP"
+      frequency: "hourly"
+      data_items: ["lbmp", "congestion", "losses"]
+      download_format: "csv"
+    rt_lbmp:
+      report_type: "RT_LBMP"
+      frequency: "hourly"
+      data_items: ["lbmp", "congestion", "losses"]
+      download_format: "csv"
+    icap:
+      report_type: "ICAP"
+      frequency: "monthly"
+      data_items: ["icap_demand_curve", "capacity_obligations"]
+      download_format: "csv"
+    tcc:
+      report_type: "TCC"
+      frequency: "auction"
+      data_items: ["auction_price", "awarded_quantity"]
+      download_format: "csv"
+
+  # Extraction parameters
+  default_start_hours_back: 24
+  default_market_run_id: "DAM"
+
+  # Rate limiting
+  requests_per_minute: 20
+  retry_attempts: 3
+  retry_delay_seconds: 15
+
+  # Data processing
+  batch_size: 1000
+  max_concurrent_requests: 2
+
+# Supported data types
+supported_data_types:
+  - "lbmp"         # Day-Ahead Locational Marginal Prices
+  - "rt_lbmp"      # Real-Time Locational Marginal Prices
+  - "icap"         # Installed Capacity demand curve
+  - "tcc"          # Transmission Congestion Contracts auction results
+
+# Schedule configuration (for Airflow DAGs)
+schedule:
+  # Run hourly for LBMP data
+  lbmp_rt_lbmp: "0 * * * *"
+
+  # Run monthly for ICAP (demand curve updates)
+  icap: "0 0 1 * *"
+
+  # Run as needed for TCC (auction results)
+  tcc: "0 4 * * *"
+
+# Quality checks
+quality_checks:
+  - name: "record_count_check"
+    enabled: true
+    min_records: 1
+
+  - name: "timestamp_check"
+    enabled: true
+    max_age_hours: 2
+
+  - name: "price_range_check"
+    enabled: true
+    min_price: -100
+    max_price: 10000
+
+# Output topics
+output_topics:
+  lbmp: "normalized.market.ticks.v1"
+  rt_lbmp: "normalized.market.ticks.v1"
+  icap: "normalized.market.ticks.v1"
+  tcc: "normalized.market.ticks.v1"

@@ -6,15 +6,13 @@ into the standardized format expected by the ingestion platform.
 """
 
 import json
-import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import structlog
 from pydantic import BaseModel, Field
 
-from ..base import BaseConnector, ExtractionResult, TransformationResult
-from ..base.exceptions import TransformationError, ValidationError
+from ..base import ExtractionResult, TransformationResult
+from ..base.exceptions import TransformationError
 from ..base.utils import setup_logging
 
 
@@ -31,14 +29,38 @@ class CAISOTransformConfig(BaseModel):
 class CAISOTransform:
     """CAISO data transformer."""
     
-    def __init__(self, config: CAISOTransformConfig):
+    def __init__(
+        self,
+        config: Optional[CAISOTransformConfig] = None,
+        *,
+        raise_on_validation_error: bool = True,
+    ):
         """
         Initialize the CAISO transformer.
         
         Args:
             config: Transformation configuration
         """
-        self.config = config
+        if config is None:
+            self.config = CAISOTransformConfig()
+        elif isinstance(config, CAISOTransformConfig):
+            self.config = config
+        else:
+            raw_config: Dict[str, Any]
+            if hasattr(config, "dict"):
+                raw_config = dict(config.dict())  # type: ignore[attr-defined]
+            elif isinstance(config, dict):
+                raw_config = dict(config)
+            else:
+                raw_config = {}
+            model_fields = getattr(CAISOTransformConfig, "model_fields", None)
+            if model_fields is not None:
+                allowed_keys = model_fields.keys()
+            else:
+                allowed_keys = CAISOTransformConfig.__fields__.keys()  # type: ignore[attr-defined]
+            filtered = {k: raw_config[k] for k in allowed_keys if k in raw_config}
+            self.config = CAISOTransformConfig(**filtered)
+        self.raise_on_validation_error = raise_on_validation_error
         self.logger = setup_logging(self.__class__.__name__)
     
     def sanitize_numeric(self, value: Any, field_name: str) -> Optional[float]:
@@ -165,19 +187,30 @@ class CAISOTransform:
                     transformed_record = record.copy()
                     
                     # Apply numeric sanitization
-                    numeric_fields = [
-                        "price", "quantity", "bid_price", "offer_price",
-                        "clearing_price", "congestion_price", "loss_price"
-                    ]
+                    if self.config.sanitize_numeric:
+                        numeric_fields = [
+                            "price",
+                            "quantity",
+                            "bid_price",
+                            "offer_price",
+                            "clearing_price",
+                            "congestion_price",
+                            "loss_price",
+                            "ghg_price",
+                        ]
 
-                    for field in numeric_fields:
-                        if field in transformed_record:
-                            transformed_record[field] = self.sanitize_numeric(
-                                transformed_record[field], field
-                            )
+                        for field in numeric_fields:
+                            if field in transformed_record:
+                                transformed_record[field] = self.sanitize_numeric(
+                                    transformed_record[field], field
+                                )
 
                     # Apply timezone standardization
-                    if "occurred_at" in transformed_record:
+                    if (
+                        self.config.standardize_timezone
+                        and "occurred_at" in transformed_record
+                        and transformed_record["occurred_at"] is not None
+                    ):
                         transformed_record["occurred_at"] = self.standardize_timezone(
                             transformed_record["occurred_at"]
                         )
@@ -197,7 +230,7 @@ class CAISOTransform:
                     
                 except Exception as e:
                     self.logger.error(f"Failed to transform record: {e}")
-                    validation_errors.append(f"Transformation error: {e}")
+                    raise TransformationError(f"Transformation error: {e}") from e
             
             # Create transformation metadata
             transformation_metadata = {
@@ -216,6 +249,9 @@ class CAISOTransform:
             transformation_metadata["transforms_applied"] = [
                 t for t in transformation_metadata["transforms_applied"] if t is not None
             ]
+
+            if validation_errors and self.raise_on_validation_error:
+                raise TransformationError("; ".join(validation_errors))
             
             return TransformationResult(
                 data=transformed_data,

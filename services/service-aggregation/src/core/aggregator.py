@@ -36,6 +36,8 @@ class OHLCBar(BaseModel):
     trade_count: int = Field(..., description="Number of trades")
     price_currency: str = Field(..., description="Price currency")
     quantity_unit: str = Field(..., description="Quantity unit")
+    trace_id: Optional[str] = Field(None, description="Source trace identifier")
+    tenant_id: str = Field("default", description="Tenant identifier")
     aggregation_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     aggregation_date: str = Field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"))
 
@@ -51,6 +53,8 @@ class RollingMetric(BaseModel):
     metric_value: float = Field(..., description="Metric value")
     metric_unit: str = Field(..., description="Metric unit")
     sample_count: int = Field(..., description="Number of samples")
+    trace_id: Optional[str] = Field(None, description="Source trace identifier")
+    tenant_id: str = Field("default", description="Tenant identifier")
     calculation_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     calculation_date: str = Field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"))
 
@@ -67,6 +71,8 @@ class CurvePreStage(BaseModel):
     price_currency: str = Field(..., description="Price currency")
     quantity_unit: str = Field(..., description="Quantity unit")
     curve_metadata: Dict[str, Any] = Field(default_factory=dict, description="Curve metadata")
+    trace_id: Optional[str] = Field(None, description="Source trace identifier")
+    tenant_id: str = Field("default", description="Tenant identifier")
     aggregation_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     aggregation_date: str = Field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"))
 
@@ -215,6 +221,10 @@ class AggregationService:
             delivery_hour = data.get("delivery_hour")
             price = data.get("price")
             quantity = data.get("quantity")
+            trace_id = data.get("trace_id")
+            tenant_id = data.get("tenant_id", "default")
+            trace_id = data.get("trace_id")
+            tenant_id = data.get("tenant_id", "default")
             
             if not all([market, delivery_location, delivery_date, price is not None, quantity is not None]):
                 return ohlc_bars
@@ -225,20 +235,35 @@ class AggregationService:
                 "delivery_hour": delivery_hour,
                 "price": float(price),
                 "quantity": float(quantity),
-                "timestamp": datetime.now(timezone.utc)
+                "timestamp": datetime.now(timezone.utc),
+                "tenant_id": tenant_id,
+                "trace_id": trace_id
             })
             
             # Update buffer size stats
             self.stats["buffer_sizes"][buffer_key] = len(self.ohlc_buffers[market][buffer_key])
             
             # Generate daily OHLC bar
-            daily_bar = await self._create_daily_ohlc_bar(market, delivery_location, delivery_date)
+            daily_bar = await self._create_daily_ohlc_bar(
+                market,
+                delivery_location,
+                delivery_date,
+                trace_id=trace_id,
+                tenant_id=tenant_id
+            )
             if daily_bar:
                 ohlc_bars.append(daily_bar)
             
             # Generate hourly OHLC bar if hour is specified
             if delivery_hour is not None:
-                hourly_bar = await self._create_hourly_ohlc_bar(market, delivery_location, delivery_date, delivery_hour)
+                hourly_bar = await self._create_hourly_ohlc_bar(
+                    market,
+                    delivery_location,
+                    delivery_date,
+                    delivery_hour,
+                    trace_id=trace_id,
+                    tenant_id=tenant_id
+                )
                 if hourly_bar:
                     ohlc_bars.append(hourly_bar)
             
@@ -248,7 +273,14 @@ class AggregationService:
             self.logger.error("Failed to generate OHLC bars", error=str(e))
             return []
     
-    async def _create_daily_ohlc_bar(self, market: str, delivery_location: str, delivery_date: str) -> Optional[OHLCBar]:
+    async def _create_daily_ohlc_bar(
+        self,
+        market: str,
+        delivery_location: str,
+        delivery_date: str,
+        trace_id: Optional[str],
+        tenant_id: str
+    ) -> Optional[OHLCBar]:
         """Create daily OHLC bar."""
         try:
             buffer_key = f"{market}_{delivery_location}_{delivery_date}"
@@ -287,14 +319,24 @@ class AggregationService:
                 vwap=vwap,
                 trade_count=len(trades),
                 price_currency="USD",
-                quantity_unit="MWh"
+                quantity_unit="MWh",
+                trace_id=trace_id,
+                tenant_id=tenant_id
             )
             
         except Exception as e:
             self.logger.error("Failed to create daily OHLC bar", error=str(e))
             return None
     
-    async def _create_hourly_ohlc_bar(self, market: str, delivery_location: str, delivery_date: str, delivery_hour: int) -> Optional[OHLCBar]:
+    async def _create_hourly_ohlc_bar(
+        self,
+        market: str,
+        delivery_location: str,
+        delivery_date: str,
+        delivery_hour: int,
+        trace_id: Optional[str],
+        tenant_id: str
+    ) -> Optional[OHLCBar]:
         """Create hourly OHLC bar."""
         try:
             buffer_key = f"{market}_{delivery_location}_{delivery_date}"
@@ -336,7 +378,9 @@ class AggregationService:
                 vwap=vwap,
                 trade_count=len(hour_trades),
                 price_currency="USD",
-                quantity_unit="MWh"
+                quantity_unit="MWh",
+                trace_id=trace_id,
+                tenant_id=tenant_id
             )
             
         except Exception as e:
@@ -371,7 +415,9 @@ class AggregationService:
             self.rolling_windows[market][window_key].append({
                 "price": float(price),
                 "quantity": float(quantity),
-                "timestamp": datetime.now(timezone.utc)
+                "timestamp": datetime.now(timezone.utc),
+                "trace_id": trace_id,
+                "tenant_id": tenant_id
             })
             
             # Generate rolling metrics
@@ -388,7 +434,9 @@ class AggregationService:
                     window_size="5",
                     metric_value=avg_price,
                     metric_unit="USD/MWh",
-                    sample_count=5
+                    sample_count=5,
+                    trace_id=trace_id,
+                    tenant_id=tenant_id
                 ))
                 
                 # Rolling total volume
@@ -401,7 +449,9 @@ class AggregationService:
                     window_size="5",
                     metric_value=total_volume,
                     metric_unit="MWh",
-                    sample_count=5
+                    sample_count=5,
+                    trace_id=trace_id,
+                    tenant_id=tenant_id
                 ))
                 
                 # Rolling price volatility
@@ -416,7 +466,9 @@ class AggregationService:
                         window_size="5",
                         metric_value=volatility,
                         metric_unit="USD/MWh",
-                        sample_count=5
+                        sample_count=5,
+                        trace_id=trace_id,
+                        tenant_id=tenant_id
                     ))
             
             return rolling_metrics
@@ -445,6 +497,8 @@ class AggregationService:
             price = data.get("price")
             quantity = data.get("quantity")
             data_type = data.get("data_type", "unknown")
+            trace_id = data.get("trace_id")
+            tenant_id = data.get("tenant_id", "default")
             
             if not all([market, delivery_date, delivery_hour is not None, price is not None, quantity is not None]):
                 return curve_prestage
@@ -458,7 +512,9 @@ class AggregationService:
                 "delivery_hour": delivery_hour,
                 "price": float(price),
                 "quantity": float(quantity),
-                "timestamp": datetime.now(timezone.utc)
+                "timestamp": datetime.now(timezone.utc),
+                "trace_id": trace_id,
+                "tenant_id": tenant_id
             })
             
             # Generate curve pre-stage entry
@@ -479,7 +535,9 @@ class AggregationService:
                 quantity=float(quantity),
                 price_currency="USD",
                 quantity_unit="MWh",
-                curve_metadata=curve_metadata
+                curve_metadata=curve_metadata,
+                trace_id=trace_id,
+                tenant_id=tenant_id
             ))
             
             return curve_prestage
@@ -520,7 +578,16 @@ class AggregationService:
                             delivery_date = parts[2]
                             
                             # Create final OHLC bar
-                            ohlc_bar = await self._create_daily_ohlc_bar(market, delivery_location, delivery_date)
+                            latest_trade = trades[-1]
+                            tenant_id = latest_trade.get("tenant_id", "default")
+                            trace_id = latest_trade.get("trace_id")
+                            ohlc_bar = await self._create_daily_ohlc_bar(
+                                market,
+                                delivery_location,
+                                delivery_date,
+                                trace_id=trace_id,
+                                tenant_id=tenant_id
+                            )
                             if ohlc_bar:
                                 result.ohlc_bars.append(ohlc_bar)
             
@@ -539,6 +606,11 @@ class AggregationService:
                                 prices = [d["price"] for d in window_data]
                                 quantities = [d["quantity"] for d in window_data]
                                 
+                                # Use most recent metadata for trace and tenant
+                                latest_point = window_data[-1]
+                                tenant_id = latest_point.get("tenant_id", "default")
+                                trace_id = latest_point.get("trace_id")
+                                
                                 # Final rolling average
                                 avg_price = statistics.mean(prices)
                                 result.rolling_metrics.append(RollingMetric(
@@ -549,7 +621,9 @@ class AggregationService:
                                     window_size="all",
                                     metric_value=avg_price,
                                     metric_unit="USD/MWh",
-                                    sample_count=len(window_data)
+                                    sample_count=len(window_data),
+                                    trace_id=trace_id,
+                                    tenant_id=tenant_id
                                 ))
                                 
                                 # Final rolling total volume
@@ -562,7 +636,9 @@ class AggregationService:
                                     window_size="all",
                                     metric_value=total_volume,
                                     metric_unit="MWh",
-                                    sample_count=len(window_data)
+                                    sample_count=len(window_data),
+                                    trace_id=trace_id,
+                                    tenant_id=tenant_id
                                 ))
             
             # Flush curve buffers
@@ -586,7 +662,9 @@ class AggregationService:
                                 quantity=data_point["quantity"],
                                 price_currency="USD",
                                 quantity_unit="MWh",
-                                curve_metadata={"flushed": True}
+                                curve_metadata={"flushed": True},
+                                trace_id=data_point.get("trace_id"),
+                                tenant_id=data_point.get("tenant_id", "default")
                             ))
             
             # Clear buffers

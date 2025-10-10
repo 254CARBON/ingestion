@@ -8,7 +8,7 @@ extraction + transformation to produce the RawCAISOTrade records.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Dict
 
 from ..base.base_connector import (
     BaseConnector,
@@ -33,21 +33,36 @@ class CAISOConnector(BaseConnector):
         # Components
         self._extractor = CAISOExtractor(self.config)  # type: ignore[arg-type]
         self._transformer = CAISOTransform(CAISOTransformConfig())
-        self.endpoints = {"singlezip": "PRC_LMP"}
+        self.endpoints = {
+            "singlezip": "PRC_LMP",
+            "edam": "EDAM_LMP",
+        }
+
+        # Supported data types
+        self.supported_data_types = ["lmp", "edam"]
+        self.quality_metrics = {
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "data_points_extracted": 0,
+        }
 
     async def extract(self, **kwargs) -> ExtractionResult:
-        """Extract PRC_LMP data from CAISO OASIS."""
+        """Extract CAISO data from OASIS (LMP or EDAM)."""
         try:
             self.logger.info("Starting CAISO OASIS extraction")
-            # Resolve time window and query params
+            self.quality_metrics["total_requests"] += 1
+
+            # Resolve extraction parameters
+            data_type = (kwargs.get("data_type") or "lmp").lower()
+            if data_type not in self.supported_data_types:
+                raise ExtractionError(f"Unsupported data type: {data_type}")
+
             start = kwargs.get("start") or kwargs.get("startdatetime")
             end = kwargs.get("end") or kwargs.get("enddatetime")
             market_run_id = kwargs.get("market_run_id") or getattr(self.config, "default_market_run_id", "DAM")
             node = kwargs.get("node") or getattr(self.config, "default_node", None)
             version = getattr(self.config, "oasis_version", "12")
-
-            if node is None:
-                raise ExtractionError("CAISO connector requires a 'node' argument or 'default_node' in config")
 
             # Default to previous clock hour UTC if not provided
             if not start or not end:
@@ -57,21 +72,39 @@ class CAISOConnector(BaseConnector):
                 start = start or start_dt
                 end = end or end_dt
 
-            result = await self._extractor.extract_prc_lmp(
-                start=start,
-                end=end,
-                market_run_id=market_run_id,
-                node=node,
-                version=version,
-            )
+            # Extract based on data type
+            if data_type == "lmp":
+                if node is None:
+                    raise ExtractionError("CAISO LMP extraction requires a 'node' argument or 'default_node' in config")
+
+                result = await self._extractor.extract_prc_lmp(
+                    start=start,
+                    end=end,
+                    market_run_id=market_run_id,
+                    node=node,
+                    version=version,
+                )
+            elif data_type == "edam":
+                result = await self._extractor.extract_edam(
+                    start=start,
+                    end=end,
+                    market_run_id=market_run_id,
+                    version=version,
+                )
+            else:
+                raise ExtractionError(f"Unsupported data type: {data_type}")
 
             self.logger.info(
                 "CAISO OASIS extraction complete",
                 record_count=result.record_count,
+                data_type=data_type,
             )
+            self.quality_metrics["successful_requests"] += 1
+            self.quality_metrics["data_points_extracted"] += result.record_count
             return result
         except Exception as e:
             self.logger.error("Failed to extract CAISO data", error=str(e))
+            self.quality_metrics["failed_requests"] += 1
             raise ExtractionError(f"CAISO extraction failed: {e}") from e
 
     async def transform(self, extraction_result: ExtractionResult) -> TransformationResult:
@@ -124,6 +157,7 @@ class CAISOConnector(BaseConnector):
             "version": self.config.version,
             "market": self.config.market,
             "mode": self.config.mode,
+            "supported_data_types": self.supported_data_types,
             "endpoints": list(self.endpoints.keys()),
             "extractor_type": "CAISOExtractor",
             "transformer_type": "CAISOTransform",
@@ -135,16 +169,16 @@ class CAISOConnector(BaseConnector):
 
     def get_extraction_capabilities(self) -> Dict[str, Any]:
         return {
-            "data_types": ["trade_data", "curve_data", "market_prices", "system_status"],
+            "data_types": self.supported_data_types,
             "modes": ["batch", "realtime"],
-            "formats": ["xml", "csv"],
+            "formats": ["csv"],
             "incremental": True,
             "rate_limits": {
                 "requests_per_minute": 50,
                 "concurrent_requests": 5
             },
-            "batch_parameters": ["start_date", "end_date", "node"],
-            "realtime_parameters": ["interval_minutes"]
+            "batch_parameters": ["start", "end", "node", "market_run_id", "data_type"],
+            "realtime_parameters": ["interval_minutes", "node", "data_type"]
         }
 
     async def run_batch(self, start_date: str, end_date: str) -> bool:
@@ -166,8 +200,6 @@ class CAISOConnector(BaseConnector):
     async def cleanup(self) -> None:
         """Cleanup connector resources."""
         try:
-            client = getattr(self._extractor, "_client", None)
-            if client:
-                await client.aclose()
+            await self._extractor.close()
         except Exception as exc:
             self.logger.warning("Error during CAISO connector cleanup", error=str(exc))

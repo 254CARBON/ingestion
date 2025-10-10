@@ -93,6 +93,7 @@ class TestCAISOExtractor:
             assert len(result.data) == 1
             assert result.data[0]["event_id"] is not None
             assert result.data[0]["market"] == "CAISO"
+        await extractor.close()
 
     @pytest.mark.asyncio
     async def test_extract_prc_lmp_failure(self, extractor):
@@ -108,15 +109,6 @@ class TestCAISOExtractor:
                     node="TEST_NODE"
                 )
 
-    @pytest.mark.asyncio
-    async def test_extract_without_node(self, extractor):
-        """Test extraction without node parameter."""
-        with pytest.raises(ExtractionError):
-            await extractor.extract_prc_lmp(
-                start_date="2022-01-01",
-                end_date="2022-01-01"
-                # Missing node parameter
-            )
 
 
 class TestCAISOTransform:
@@ -217,8 +209,8 @@ class TestCAISOConnector:
         assert "config" in capabilities
 
     @pytest.mark.asyncio
-    async def test_extract_batch_mode(self, connector, sample_raw_record):
-        """Test batch mode extraction."""
+    async def test_extract_lmp(self, connector, sample_raw_record):
+        """Test LMP extraction flow."""
         with patch.object(connector._extractor, 'extract_prc_lmp') as mock_extract:
             mock_extract.return_value = ExtractionResult(
                 data=[sample_raw_record],
@@ -227,9 +219,9 @@ class TestCAISOConnector:
             )
 
             result = await connector.extract(
-                mode="batch",
-                start_date="2022-01-01",
-                end_date="2022-01-01",
+                data_type="lmp",
+                start="2022-01-01T00:00:00",
+                end="2022-01-01T01:00:00",
                 node="TEST_NODE"
             )
 
@@ -238,9 +230,9 @@ class TestCAISOConnector:
             mock_extract.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_extract_realtime_mode(self, connector, sample_raw_record):
-        """Test real-time mode extraction."""
-        with patch.object(connector._extractor, 'extract_prc_lmp') as mock_extract:
+    async def test_extract_edam(self, connector, sample_raw_record):
+        """Test EDAM extraction flow."""
+        with patch.object(connector._extractor, 'extract_edam') as mock_extract:
             mock_extract.return_value = ExtractionResult(
                 data=[sample_raw_record],
                 metadata={"test": "metadata"},
@@ -248,19 +240,31 @@ class TestCAISOConnector:
             )
 
             result = await connector.extract(
-                mode="realtime",
-                node="TEST_NODE"
+                data_type="edam",
+                start="2022-01-01T00:00:00",
+                end="2022-01-01T01:00:00"
             )
 
             assert isinstance(result, ExtractionResult)
             assert result.record_count == 1
+            mock_extract.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_extract_missing_parameters(self, connector):
         """Test extraction with missing parameters."""
         # The current implementation validates parameters
         with pytest.raises(ExtractionError):
-            await connector.extract(mode="batch")
+            await connector.extract(data_type="lmp")
+
+    @pytest.mark.asyncio
+    async def test_extract_requires_node_for_lmp(self, connector):
+        """Ensure node is required for LMP extractions."""
+        with pytest.raises(ExtractionError):
+            await connector.extract(
+                data_type="lmp",
+                start="2022-01-01T00:00:00",
+                end="2022-01-01T01:00:00",
+            )
 
     @pytest.mark.asyncio
     async def test_transform(self, connector, sample_raw_record):

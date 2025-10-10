@@ -5,15 +5,29 @@ End-to-end tests for the complete data pipeline.
 import pytest
 import asyncio
 import json
+import sys
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
+ROOT_DIR = Path(__file__).resolve().parents[3]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from connectors.caiso.connector import CAISOConnector
 from connectors.caiso.config import CAISOConnectorConfig
 from connectors.base import ExtractionResult, TransformationResult
-from services.service-enrichment.src.core.enricher import EnrichmentService
-from services.service-aggregation.src.core.aggregator import AggregationService
+from ingestion.tests.utils.import_helpers import import_from_services
+
+EnrichmentService, = import_from_services(
+    "services.service-enrichment.src.core.enricher",
+    ["EnrichmentService"]
+)
+AggregationService, = import_from_services(
+    "services.service-aggregation.src.core.aggregator",
+    ["AggregationService"]
+)
 
 
 class TestEndToEndPipeline:
@@ -45,7 +59,7 @@ class TestEndToEndPipeline:
     @pytest.fixture
     def enrichment_service(self):
         """Create enrichment service."""
-        with patch('services.service-enrichment.src.core.enricher.TaxonomyService') as mock_taxonomy:
+        with patch('services.service_enrichment.src.core.enricher.TaxonomyService') as mock_taxonomy:
             mock_taxonomy.return_value.get_market_taxonomy.return_value = {
                 "instruments": {
                     "market_price": ["spot_pricing", "real_time_market", "energy_trading"],
@@ -77,7 +91,7 @@ class TestEndToEndPipeline:
     @pytest.fixture
     def aggregation_service(self):
         """Create aggregation service."""
-        with patch('services.service-aggregation.src.core.aggregator.open') as mock_open:
+        with patch('services.service_aggregation.src.core.aggregator.open') as mock_open:
             mock_open.return_value.__enter__.return_value.read.return_value = """
 ohlc_policies:
   daily:

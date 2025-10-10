@@ -5,16 +5,42 @@ Integration tests for Kafka integration.
 import pytest
 import asyncio
 import json
+import sys
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from services.service-enrichment.src.consumers.kafka_consumer import KafkaConsumerService, ConsumerConfig
-from services.service-enrichment.src.producers.kafka_producer import KafkaProducerService, ProducerConfig
-from services.service-enrichment.src.core.enricher import EnrichmentService, EnrichmentResult
-from services.service-aggregation.src.consumers.kafka_consumer import KafkaConsumerService as AggKafkaConsumerService
-from services.service-aggregation.src.producers.kafka_producer import KafkaProducerService as AggKafkaProducerService
-from services.service-aggregation.src.core.aggregator import AggregationService
+ROOT_DIR = Path(__file__).resolve().parents[3]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from ingestion.tests.utils.import_helpers import import_from_services
+
+KafkaConsumerService, ConsumerConfig = import_from_services(
+    "services.service-enrichment.src.consumers.kafka_consumer",
+    ["KafkaConsumerService", "ConsumerConfig"]
+)
+KafkaProducerService, ProducerConfig = import_from_services(
+    "services.service-enrichment.src.producers.kafka_producer",
+    ["KafkaProducerService", "ProducerConfig"]
+)
+EnrichmentService, EnrichmentResult = import_from_services(
+    "services.service-enrichment.src.core.enricher",
+    ["EnrichmentService", "EnrichmentResult"]
+)
+AggKafkaConsumerService, = import_from_services(
+    "services.service-aggregation.src.consumers.kafka_consumer",
+    ["KafkaConsumerService"]
+)
+AggKafkaProducerService, = import_from_services(
+    "services.service-aggregation.src.producers.kafka_producer",
+    ["KafkaProducerService"]
+)
+AggregationService, = import_from_services(
+    "services.service-aggregation.src.core.aggregator",
+    ["AggregationService"]
+)
 
 
 class TestKafkaIntegration:
@@ -40,7 +66,7 @@ class TestKafkaIntegration:
     @pytest.fixture
     def enrichment_service(self):
         """Create enrichment service."""
-        with patch('services.service-enrichment.src.core.enricher.TaxonomyService') as mock_taxonomy:
+        with patch('services.service_enrichment.src.core.enricher.TaxonomyService') as mock_taxonomy:
             mock_taxonomy.return_value.get_market_taxonomy.return_value = {
                 "instruments": {
                     "market_price": ["spot_pricing", "real_time_market"]
@@ -63,7 +89,7 @@ class TestKafkaIntegration:
     @pytest.fixture
     def aggregation_service(self):
         """Create aggregation service."""
-        with patch('services.service-aggregation.src.core.aggregator.open') as mock_open:
+        with patch('services.service_aggregation.src.core.aggregator.open') as mock_open:
             mock_open.return_value.__enter__.return_value.read.return_value = """
 ohlc_policies:
   daily:
@@ -148,7 +174,7 @@ curve_prestage:
         consumer = KafkaConsumerService(consumer_config, enrichment_service)
         
         # Mock the AIOKafkaConsumer
-        with patch('services.service-enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
+        with patch('services.service_enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
             mock_consumer = AsyncMock()
             mock_consumer_class.return_value = mock_consumer
             
@@ -166,7 +192,7 @@ curve_prestage:
         producer = KafkaProducerService(producer_config)
         
         # Mock the AIOKafkaProducer
-        with patch('services.service-enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
+        with patch('services.service_enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
             mock_producer = AsyncMock()
             mock_producer_class.return_value = mock_producer
             
@@ -184,7 +210,7 @@ curve_prestage:
         consumer = KafkaConsumerService(consumer_config, enrichment_service)
         
         # Mock the AIOKafkaConsumer
-        with patch('services.service-enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
+        with patch('services.service_enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
             mock_consumer = AsyncMock()
             mock_consumer_class.return_value = mock_consumer
             
@@ -226,7 +252,7 @@ curve_prestage:
         producer = KafkaProducerService(producer_config)
         
         # Mock the AIOKafkaProducer
-        with patch('services.service-enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
+        with patch('services.service_enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
             mock_producer = AsyncMock()
             mock_producer_class.return_value = mock_producer
             
@@ -265,7 +291,7 @@ curve_prestage:
         consumer = AggKafkaConsumerService(consumer_config, aggregation_service)
         
         # Mock the AIOKafkaConsumer
-        with patch('services.service-aggregation.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
+        with patch('services.service_aggregation.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
             mock_consumer = AsyncMock()
             mock_consumer_class.return_value = mock_consumer
             
@@ -292,7 +318,7 @@ curve_prestage:
         producer = AggKafkaProducerService(producer_config)
         
         # Mock the AIOKafkaProducer
-        with patch('services.service-aggregation.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
+        with patch('services.service_aggregation.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
             mock_producer = AsyncMock()
             mock_producer_class.return_value = mock_producer
             
@@ -316,7 +342,7 @@ curve_prestage:
         consumer = AggKafkaConsumerService(consumer_config, aggregation_service)
         
         # Mock the AIOKafkaConsumer
-        with patch('services.service-aggregation.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
+        with patch('services.service_aggregation.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
             mock_consumer = AsyncMock()
             mock_consumer_class.return_value = mock_consumer
             
@@ -376,7 +402,7 @@ curve_prestage:
         producer = AggKafkaProducerService(producer_config)
         
         # Mock the AIOKafkaProducer
-        with patch('services.service-aggregation.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
+        with patch('services.service_aggregation.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
             mock_producer = AsyncMock()
             mock_producer_class.return_value = mock_producer
             
@@ -402,14 +428,21 @@ curve_prestage:
             # Should have sent to at least one topic
             assert any(topic in topics_sent for topic in producer_config.output_topics.values())
 
+            # Ensure payloads are JSON serializable and carry tenant metadata
+            for call_args in calls:
+                message_payload = call_args.kwargs["value"]
+                # Should not raise serialization errors
+                json.dumps(message_payload)
+                assert message_payload["tenant_id"] == sample_enriched_data["tenant_id"]
+
     @pytest.mark.asyncio
     async def test_end_to_end_data_flow(self, enrichment_service, aggregation_service, sample_normalized_data):
         """Test end-to-end data flow through enrichment and aggregation."""
         # Mock Kafka components
-        with patch('services.service-enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_enrich_consumer_class, \
-             patch('services.service-enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_enrich_producer_class, \
-             patch('services.service-aggregation.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_agg_consumer_class, \
-             patch('services.service-aggregation.src.producers.kafka_producer.AIOKafkaProducer') as mock_agg_producer_class:
+        with patch('services.service_enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_enrich_consumer_class, \
+             patch('services.service_enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_enrich_producer_class, \
+             patch('services.service_aggregation.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_agg_consumer_class, \
+             patch('services.service_aggregation.src.producers.kafka_producer.AIOKafkaProducer') as mock_agg_producer_class:
             
             # Set up mocks
             mock_enrich_consumer = AsyncMock()
@@ -490,7 +523,7 @@ curve_prestage:
         consumer = KafkaConsumerService(consumer_config, enrichment_service)
         
         # Mock the AIOKafkaConsumer to raise an error
-        with patch('services.service-enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
+        with patch('services.service_enrichment.src.consumers.kafka_consumer.AIOKafkaConsumer') as mock_consumer_class:
             mock_consumer = AsyncMock()
             mock_consumer.start.side_effect = Exception("Kafka connection failed")
             mock_consumer_class.return_value = mock_consumer
@@ -505,7 +538,7 @@ curve_prestage:
         producer = KafkaProducerService(producer_config)
         
         # Mock the AIOKafkaProducer
-        with patch('services.service-enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
+        with patch('services.service_enrichment.src.producers.kafka_producer.AIOKafkaProducer') as mock_producer_class:
             mock_producer = AsyncMock()
             mock_producer_class.return_value = mock_producer
             

@@ -5,15 +5,41 @@ Integration tests for projection service.
 import pytest
 import asyncio
 import json
+import sys
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
 
-from services.service-projection.src.core.projector import ProjectionService
-from services.service-projection.src.core.clickhouse_writer import ClickHouseWriter, ClickHouseWriterConfig
-from services.service-projection.src.core.cache_manager import CacheManager, CacheManagerConfig
-from services.service-projection.src.consumers.ohlc_consumer import KafkaOHLCConsumer, OHLCConsumerConfig
-from services.service-projection.src.consumers.metrics_consumer import KafkaMetricsConsumer, MetricsConsumerConfig
-from services.service-projection.src.consumers.curve_consumer import KafkaCurveConsumer, CurveConsumerConfig
+ROOT_DIR = Path(__file__).resolve().parents[3]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from ingestion.tests.utils import import_helpers
+
+ProjectionService, = import_helpers.import_from_services(
+    "services.service-projection.src.core.projector",
+    ["ProjectionService"]
+)
+ClickHouseWriter, ClickHouseWriterConfig = import_helpers.import_from_services(
+    "services.service-projection.src.core.clickhouse_writer",
+    ["ClickHouseWriter", "ClickHouseWriterConfig"]
+)
+CacheManager, CacheManagerConfig = import_helpers.import_from_services(
+    "services.service-projection.src.core.cache_manager",
+    ["CacheManager", "CacheManagerConfig"]
+)
+KafkaOHLCConsumer, OHLCConsumerConfig = import_helpers.import_from_services(
+    "services.service-projection.src.consumers.ohlc_consumer",
+    ["KafkaOHLCConsumer", "OHLCConsumerConfig"]
+)
+KafkaMetricsConsumer, MetricsConsumerConfig = import_helpers.import_from_services(
+    "services.service-projection.src.consumers.metrics_consumer",
+    ["KafkaMetricsConsumer", "MetricsConsumerConfig"]
+)
+KafkaCurveConsumer, CurveConsumerConfig = import_helpers.import_from_services(
+    "services.service-projection.src.consumers.curve_consumer",
+    ["KafkaCurveConsumer", "CurveConsumerConfig"]
+)
 
 
 class TestProjectionIntegration:
@@ -22,8 +48,8 @@ class TestProjectionIntegration:
     @pytest.fixture
     def projection_service(self):
         """Create projection service for integration testing."""
-        with patch('services.service-projection.src.core.projector.ClickHouseWriter') as mock_ch_writer, \
-             patch('services.service-projection.src.core.projector.CacheManager') as mock_cache_manager:
+        with patch('services.service_projection.src.core.projector.ClickHouseWriter') as mock_ch_writer, \
+             patch('services.service_projection.src.core.projector.CacheManager') as mock_cache_manager:
 
             # Create real instances for testing
             ch_config = ClickHouseWriterConfig(dsn="clickhouse://test:test@localhost:9000/test")
@@ -190,7 +216,7 @@ class TestProjectionIntegration:
         consumer = KafkaOHLCConsumer(consumer_config, projection_service)
 
         # Mock Kafka consumer
-        with patch('services.service-projection.src.consumers.ohlc_consumer.AIOKafkaConsumer') as mock_consumer_class:
+        with patch('services.service_projection.src.consumers.ohlc_consumer.AIOKafkaConsumer') as mock_consumer_class:
             mock_consumer = AsyncMock()
             mock_consumer_class.return_value = mock_consumer
             consumer.consumer = mock_consumer

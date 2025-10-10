@@ -1,0 +1,87 @@
+name: "ercot"
+description: "ERCOT market data connector for DAM/RTM, ORDC, AS, CRR, and outages"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  # API credentials (required)
+  api_key: "${ERCOT_API_KEY}"
+  api_secret: "${ERCOT_API_SECRET}"
+
+  # API endpoints
+  base_url: "https://api.ercot.com"
+  dam_endpoint: "/np4-181-cd/api/1.0/reports"
+  rtm_endpoint: "/np4-181-cd/api/1.0/reports"
+  ordc_endpoint: "/np4-181-cd/api/1.0/reports"
+  as_endpoint: "/np4-181-cd/api/1.0/reports"
+  crr_endpoint: "/np4-181-cd/api/1.0/reports"
+  outages_endpoint: "/np4-181-cd/api/1.0/reports"
+
+  # Report IDs for different data types
+  report_ids:
+    dam: "NP4-181-CD"
+    rtm: "NP4-181-CD"
+    ordc: "NP4-181-CD"
+    as: "NP4-181-CD"
+    crr: "NP4-181-CD"
+    outages: "NP4-181-CD"
+
+  # Extraction parameters
+  default_start_hours_back: 24
+  default_market_run_id: "DAM"
+
+  # Rate limiting
+  requests_per_minute: 60
+  retry_attempts: 3
+  retry_delay_seconds: 5
+
+  # Data processing
+  batch_size: 1000
+  max_concurrent_requests: 5
+
+# Supported data types
+supported_data_types:
+  - "dam"      # Day-Ahead Market
+  - "rtm"      # Real-Time Market
+  - "ordc"     # Operating Reserve Demand Curve
+  - "as"       # Ancillary Services
+  - "crr"      # Congestion Revenue Rights
+  - "outages"  # Generation outages
+
+# Schedule configuration (for Airflow DAGs)
+schedule:
+  # Run every hour for DAM/RTM
+  dam_rtm: "0 * * * *"
+
+  # Run every 15 minutes for ORDC/AS
+  ordc_as: "*/15 * * * *"
+
+  # Run daily for CRR (auction results)
+  crr: "0 2 * * *"
+
+  # Run every 6 hours for outages
+  outages: "0 */6 * * *"
+
+# Quality checks
+quality_checks:
+  - name: "record_count_check"
+    enabled: true
+    min_records: 1
+
+  - name: "timestamp_check"
+    enabled: true
+    max_age_hours: 2
+
+  - name: "price_range_check"
+    enabled: true
+    min_price: -100
+    max_price: 10000
+
+# Output topics
+output_topics:
+  dam: "normalized.market.ticks.v1"
+  rtm: "normalized.market.ticks.v1"
+  ordc: "normalized.market.ticks.v1"
+  as: "normalized.market.ticks.v1"
+  crr: "normalized.market.ticks.v1"
+  outages: "normalized.market.ticks.v1"

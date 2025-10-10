@@ -1,313 +1,333 @@
 """
 MISO data extractor implementation.
-
-This module provides the MISO extractor for pulling data from MISO APIs
-and external data sources.
 """
 
-import asyncio
-import json
-import logging
+from __future__ import annotations
+
+import csv
+import io
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from typing import Any, Dict, Iterable, List, Optional
 
 import httpx
-import structlog
-from pydantic import BaseModel, Field
 
-from ..base import BaseConnector, ExtractionResult
-from ..base.exceptions import ExtractionError, NetworkError, AuthenticationError
-from ..base.utils import setup_logging, retry_with_backoff
-
-
-class MISOAuthConfig(BaseModel):
-    """MISO authentication configuration."""
-    
-    api_key: str = Field(..., description="MISO API key")
-    base_url: str = Field(..., description="MISO API base URL")
-    timeout: int = Field(30, description="Request timeout in seconds")
-    rate_limit: int = Field(100, description="Requests per minute")
-
-
-class MISOApiClient:
-    """MISO API client for data extraction."""
-    
-    def __init__(self, auth_config: MISOAuthConfig):
-        """
-        Initialize the MISO API client.
-        
-        Args:
-            auth_config: MISO authentication configuration
-        """
-        self.auth_config = auth_config
-        self.logger = setup_logging(self.__class__.__name__)
-        self._client: Optional[httpx.AsyncClient] = None
-    
-    async def __aenter__(self):
-        """Async context manager entry."""
-        self._client = httpx.AsyncClient(
-            base_url=self.auth_config.base_url,
-            timeout=self.auth_config.timeout,
-            headers={
-                "Authorization": f"Bearer {self.auth_config.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "254Carbon-Ingestion/1.0"
-            }
-        )
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._client:
-            await self._client.aclose()
-    
-    async def get_trade_data(
-        self,
-        start_date: str,
-        end_date: str,
-        settlement_point: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Get MISO trade data for a date range.
-        
-        Args:
-            start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
-            settlement_point: Optional settlement point filter
-            
-        Returns:
-            List[Dict[str, Any]]: Trade data records
-            
-        Raises:
-            ExtractionError: If extraction fails
-        """
-        if not self._client:
-            raise ExtractionError("API client not initialized")
-        
-        try:
-            params = {
-                "startDate": start_date,
-                "endDate": end_date,
-                "format": "json"
-            }
-            
-            if settlement_point:
-                params["settlementPoint"] = settlement_point
-            
-            self.logger.info(f"Fetching MISO trade data: {params}")
-            
-            response = await self._client.get("/api/trade-data", params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if not isinstance(data, list):
-                raise ExtractionError(f"Unexpected response format: {type(data)}")
-            
-            self.logger.info(f"Retrieved {len(data)} trade records")
-            return data
-            
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                raise AuthenticationError(f"MISO API authentication failed: {e}")
-            elif e.response.status_code == 429:
-                raise ExtractionError(f"MISO API rate limit exceeded: {e}")
-            else:
-                raise ExtractionError(f"MISO API error: {e}")
-        except httpx.RequestError as e:
-            raise NetworkError(f"Network error accessing MISO API: {e}")
-        except Exception as e:
-            raise ExtractionError(f"Unexpected error extracting MISO data: {e}")
-    
-    async def get_realtime_data(self) -> List[Dict[str, Any]]:
-        """
-        Get MISO real-time market data.
-        
-        Returns:
-            List[Dict[str, Any]]: Real-time data records
-            
-        Raises:
-            ExtractionError: If extraction fails
-        """
-        if not self._client:
-            raise ExtractionError("API client not initialized")
-        
-        try:
-            self.logger.info("Fetching MISO real-time data")
-            
-            response = await self._client.get("/api/realtime-data")
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if not isinstance(data, list):
-                raise ExtractionError(f"Unexpected response format: {type(data)}")
-            
-            self.logger.info(f"Retrieved {len(data)} real-time records")
-            return data
-            
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                raise AuthenticationError(f"MISO API authentication failed: {e}")
-            elif e.response.status_code == 429:
-                raise ExtractionError(f"MISO API rate limit exceeded: {e}")
-            else:
-                raise ExtractionError(f"MISO API error: {e}")
-        except httpx.RequestError as e:
-            raise NetworkError(f"Network error accessing MISO API: {e}")
-        except Exception as e:
-            raise ExtractionError(f"Unexpected error extracting MISO real-time data: {e}")
+from ..base.exceptions import ExtractionError
+from .config import MISOConnectorConfig
 
 
 class MISOExtractor:
-    """MISO data extractor."""
-    
-    def __init__(self, auth_config: MISOAuthConfig):
-        """
-        Initialize the MISO extractor.
-        
-        Args:
-            auth_config: MISO authentication configuration
-        """
-        self.auth_config = auth_config
-        self.logger = setup_logging(self.__class__.__name__)
-    
-    async def extract_trades(
+    """Fetch and normalize datasets from the MISO Data Exchange APIs."""
+
+    def __init__(self, config: MISOConnectorConfig):
+        self.config = config
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def extract_data(
         self,
-        start_date: str,
-        end_date: str,
-        settlement_point: Optional[str] = None
-    ) -> ExtractionResult:
-        """
-        Extract MISO trade data.
-        
-        Args:
-            start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
-            settlement_point: Optional settlement point filter
-            
-        Returns:
-            ExtractionResult: Extracted data and metadata
-        """
-        try:
-            async with MISOApiClient(self.auth_config) as client:
-                raw_data = await client.get_trade_data(
-                    start_date, end_date, settlement_point
-                )
-            
-            # Transform raw data into standardized format
-            processed_data = []
-            for record in raw_data:
-                processed_record = {
-                    "event_id": str(uuid4()),
-                    "trace_id": None,
-                    "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
-                    "tenant_id": "default",
-                    "schema_version": "1.0.0",
-                    "producer": "miso-connector",
-                    "market": "MISO",
-                    "trade_id": record.get("tradeId"),
-                    "settlement_point": record.get("settlementPoint"),
-                    "hub": record.get("hub"),
-                    "price": record.get("price"),
-                    "quantity": record.get("quantity"),
-                    "trade_date": record.get("tradeDate"),
-                    "trade_hour": record.get("tradeHour"),
-                    "trade_type": record.get("tradeType"),
-                    "product_type": record.get("productType"),
-                    "delivery_date": record.get("deliveryDate"),
-                    "delivery_hour": record.get("deliveryHour"),
-                    "bid_price": record.get("bidPrice"),
-                    "offer_price": record.get("offerPrice"),
-                    "clearing_price": record.get("clearingPrice"),
-                    "congestion_price": record.get("congestionPrice"),
-                    "loss_price": record.get("lossPrice"),
-                    "raw_data": json.dumps(record),
-                    "extraction_metadata": {
-                        "extraction_time": datetime.now(timezone.utc).isoformat(),
-                        "source": "miso-api",
-                        "version": "1.2.0"
-                    }
-                }
-                processed_data.append(processed_record)
-            
-            return ExtractionResult(
-                data=processed_data,
-                metadata={
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "settlement_point": settlement_point,
-                    "extraction_time": datetime.now(timezone.utc).isoformat(),
-                    "source": "miso-api",
-                    "version": "1.2.0"
-                },
-                record_count=len(processed_data)
+        *,
+        data_type: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Extract a dataset for the requested data_type."""
+        if data_type not in self.config.dataset_configs:
+            raise ExtractionError(f"No dataset configuration for data_type={data_type}")
+
+        rows = await self._fetch_dataset(data_type, start_time, end_time)
+
+        if data_type == "lmp":
+            return self._normalize_lmp_rows(rows)
+        if data_type == "as":
+            return self._normalize_as_rows(rows)
+        if data_type == "pra":
+            return self._normalize_pra_rows(rows)
+        if data_type == "arr":
+            return self._normalize_arr_rows(rows)
+        if data_type == "tcr":
+            return self._normalize_tcr_rows(rows)
+
+        raise ExtractionError(f"Unsupported data_type={data_type}")
+
+    async def close(self) -> None:
+        """Release HTTP resources."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    async def _ensure_client(self) -> None:
+        if self._client is None:
+            headers = {
+                "User-Agent": "254Carbon-Ingestion/1.0",
+                "Accept": "application/json",
+            }
+            if self.config.miso_api_key:
+                headers["Ocp-Apim-Subscription-Key"] = self.config.miso_api_key
+
+            timeout = httpx.Timeout(self.config.miso_timeout)
+            self._client = httpx.AsyncClient(
+                base_url=self.config.miso_base_url.rstrip("/"),
+                timeout=timeout,
+                headers=headers,
             )
-            
-        except Exception as e:
-            self.logger.error(f"Failed to extract MISO trade data: {e}")
-            raise ExtractionError(f"MISO trade data extraction failed: {e}") from e
-    
-    async def extract_realtime(self) -> ExtractionResult:
-        """
-        Extract MISO real-time data.
-        
-        Returns:
-            ExtractionResult: Extracted data and metadata
-        """
+
+    async def _fetch_dataset(
+        self,
+        data_type: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Execute the HTTP request for the given dataset."""
+        await self._ensure_client()
+        assert self._client is not None
+
+        dataset_config = self.config.dataset_configs[data_type]
+        path = dataset_config.get("path")
+        if not path:
+            raise ExtractionError(f"No path configured for data_type={data_type}")
+
+        fmt = str(dataset_config.get("format", "json")).lower()
+        params: Dict[str, Any] = dict(dataset_config.get("static_params", {}))
+
+        time_params = dataset_config.get("time_params", {})
+        time_format = dataset_config.get("time_format", "%Y-%m-%dT%H:%M:%SZ")
+
+        start_param = time_params.get("start")
+        end_param = time_params.get("end")
+
+        # Normalize supplied times to UTC before formatting.
+        start_utc = start_time.astimezone(timezone.utc)
+        end_utc = end_time.astimezone(timezone.utc)
+
+        if start_param:
+            params[start_param] = start_utc.strftime(time_format)
+        if end_param:
+            params[end_param] = end_utc.strftime(time_format)
+
+        response = await self._client.get(path, params=params)
+
         try:
-            async with MISOApiClient(self.auth_config) as client:
-                raw_data = await client.get_realtime_data()
-            
-            # Transform raw data into standardized format
-            processed_data = []
-            for record in raw_data:
-                processed_record = {
-                    "event_id": str(uuid4()),
-                    "trace_id": None,
-                    "occurred_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
-                    "tenant_id": "default",
-                    "schema_version": "1.0.0",
-                    "producer": "miso-connector",
-                    "market": "MISO",
-                    "trade_id": record.get("tradeId"),
-                    "settlement_point": record.get("settlementPoint"),
-                    "hub": record.get("hub"),
-                    "price": record.get("price"),
-                    "quantity": record.get("quantity"),
-                    "trade_date": record.get("tradeDate"),
-                    "trade_hour": record.get("tradeHour"),
-                    "trade_type": record.get("tradeType"),
-                    "product_type": record.get("productType"),
-                    "delivery_date": record.get("deliveryDate"),
-                    "delivery_hour": record.get("deliveryHour"),
-                    "bid_price": record.get("bidPrice"),
-                    "offer_price": record.get("offerPrice"),
-                    "clearing_price": record.get("clearingPrice"),
-                    "congestion_price": record.get("congestionPrice"),
-                    "loss_price": record.get("lossPrice"),
-                    "raw_data": json.dumps(record),
-                    "extraction_metadata": {
-                        "extraction_time": datetime.now(timezone.utc).isoformat(),
-                        "source": "miso-api",
-                        "version": "1.2.0",
-                        "mode": "realtime"
-                    }
-                }
-                processed_data.append(processed_record)
-            
-            return ExtractionResult(
-                data=processed_data,
-                metadata={
-                    "extraction_time": datetime.now(timezone.utc).isoformat(),
-                    "source": "miso-api",
-                    "version": "1.2.0",
-                    "mode": "realtime"
-                },
-                record_count=len(processed_data)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ExtractionError(
+                f"MISO API request failed for {data_type}: "
+                f"{exc.response.status_code} {exc.response.text[:200]}"
+            ) from exc
+
+        if fmt == "json":
+            payload = response.json()
+            return self._resolve_json_payload(payload, dataset_config)
+
+        if fmt == "csv":
+            text = response.text
+            reader = csv.DictReader(io.StringIO(text))
+            return list(reader)
+
+        raise ExtractionError(f"Unsupported dataset format '{fmt}' for {data_type}")
+
+    @staticmethod
+    def _resolve_json_payload(payload: Any, dataset_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Resolve the JSON payload into a list of dictionaries."""
+        data_key = dataset_config.get("data_key")
+        data = payload
+
+        if data_key:
+            parts = data_key.split(".")
+            for part in parts:
+                if isinstance(data, dict):
+                    data = data.get(part, [])
+                else:
+                    data = []
+                    break
+
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+
+        if isinstance(data, dict):
+            # Some datasets return a single object.
+            return [data]
+
+        # Fallback heuristics for common wrapper keys
+        if isinstance(payload, dict):
+            for key in ("items", "data", "results", "rows"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
+
+        raise ExtractionError("Unexpected JSON payload structure returned by MISO API")
+
+    # -------------------------------------------------------------------------
+    # Normalization helpers
+    # -------------------------------------------------------------------------
+
+    def _normalize_lmp_rows(self, rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for row in rows:
+            timestamp = self._first_of(row, ["timestamp", "startTime", "intervalStart", "mtu", "mtuStart"])
+            location = self._first_of(
+                row,
+                ["settlementLocation", "pnodeName", "node", "location", "settlement_point"],
             )
-            
-        except Exception as e:
-            self.logger.error(f"Failed to extract MISO real-time data: {e}")
-            raise ExtractionError(f"MISO real-time data extraction failed: {e}") from e
+            if not timestamp or not location:
+                continue
+
+            normalized.append(
+                {
+                    "timestamp": timestamp,
+                    "node": location,
+                    "market_run": self._first_of(row, ["marketRunId", "marketRun", "market_run"]),
+                    "lmp": self._to_float(self._first_of(row, ["lmp", "lmpValue", "totalLmp", "price"])),
+                    "congestion": self._to_float(
+                        self._first_of(row, ["congestion", "congestionComponent", "congestionPrice", "mcc"])
+                    ),
+                    "loss": self._to_float(
+                        self._first_of(row, ["loss", "lossComponent", "marginalLossPrice", "mlc"])
+                    ),
+                    "energy": self._to_float(
+                        self._first_of(row, ["energy", "energyComponent", "energyPrice", "mep"])
+                    ),
+                    "market": "miso",
+                    "data_type": "lmp",
+                }
+            )
+        return normalized
+
+    def _normalize_as_rows(self, rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for row in rows:
+            timestamp = self._first_of(row, ["timestamp", "startTime", "intervalStart"])
+            product = self._first_of(row, ["product", "productType", "asType", "ancillaryType"])
+            if not timestamp or not product:
+                continue
+
+            normalized.append(
+                {
+                    "timestamp": timestamp,
+                    "product": product,
+                    "zone": self._first_of(row, ["zone", "reserveZone", "marketZone", "asRegion"]),
+                    "cleared_price": self._to_float(
+                        self._first_of(row, ["clearedPrice", "price", "clearingPrice"])
+                    ),
+                    "cleared_mw": self._to_float(
+                        self._first_of(row, ["clearedMw", "quantity", "awardedMw", "mw"])
+                    ),
+                    "market": "miso",
+                    "data_type": "as",
+                }
+            )
+        return normalized
+
+    def _normalize_pra_rows(self, rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for row in rows:
+            auction = self._first_of(row, ["auction", "auctionName", "auctionId"])
+            zone = self._first_of(row, ["planningZone", "zone", "praZone"])
+            if not auction or not zone:
+                continue
+
+            normalized.append(
+                {
+                    "auction": auction,
+                    "auction_date": self._first_of(row, ["auctionDate", "auction_date", "startDate"]),
+                    "planning_zone": zone,
+                    "planning_year": self._first_of(row, ["planningYear", "season", "planningYearLabel"]),
+                    "clearing_price": self._to_float(
+                        self._first_of(row, ["clearingPrice", "price", "clearedPrice"])
+                    ),
+                    "awarded_mw": self._to_float(
+                        self._first_of(row, ["awardedMw", "mwAwarded", "awardedQuantity"])
+                    ),
+                    "market": "miso",
+                    "data_type": "pra",
+                }
+            )
+        return normalized
+
+    def _normalize_arr_rows(self, rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for row in rows:
+            auction = self._first_of(row, ["auction", "auctionName", "auctionId"])
+            path = self._first_of(row, ["path", "pathName", "pathId"])
+            if not auction or not path:
+                continue
+
+            normalized.append(
+                {
+                    "auction": auction,
+                    "auction_date": self._first_of(row, ["auctionDate", "auction_date", "startDate"]),
+                    "path": path,
+                    "source": self._first_of(row, ["source", "sourceNode", "fromNode"]),
+                    "sink": self._first_of(row, ["sink", "sinkNode", "toNode"]),
+                    "class_type": self._first_of(row, ["class", "classType", "productClass"]),
+                    "clearing_price": self._to_float(
+                        self._first_of(row, ["clearingPrice", "price", "clearedPrice"])
+                    ),
+                    "awarded_mw": self._to_float(
+                        self._first_of(row, ["awardedMw", "mwAwarded", "awardedQuantity"])
+                    ),
+                    "market": "miso",
+                    "data_type": "arr",
+                }
+            )
+        return normalized
+
+    def _normalize_tcr_rows(self, rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for row in rows:
+            auction = self._first_of(row, ["auction", "auctionName", "auctionId"])
+            path = self._first_of(row, ["path", "pathName", "pathId"])
+            if not auction or not path:
+                continue
+
+            normalized.append(
+                {
+                    "auction": auction,
+                    "auction_date": self._first_of(row, ["auctionDate", "auction_date", "startDate"]),
+                    "path": path,
+                    "source": self._first_of(row, ["source", "sourceNode", "fromNode"]),
+                    "sink": self._first_of(row, ["sink", "sinkNode", "toNode"]),
+                    "class_type": self._first_of(row, ["class", "classType", "productClass"]),
+                    "round_id": self._first_of(row, ["round", "roundId", "auctionRound"]),
+                    "clearing_price": self._to_float(
+                        self._first_of(row, ["clearingPrice", "price", "clearedPrice"])
+                    ),
+                    "awarded_mw": self._to_float(
+                        self._first_of(row, ["awardedMw", "mwAwarded", "awardedQuantity"])
+                    ),
+                    "market": "miso",
+                    "data_type": "tcr",
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _first_of(row: Dict[str, Any], keys: Iterable[str]) -> Optional[Any]:
+        """Return the first non-null value for any of the provided keys."""
+        lowered_map = {str(k).lower(): k for k in row.keys()}
+        for key in keys:
+            # Direct match
+            if key in row and row[key] not in (None, ""):
+                return row[key]
+            key_lower = key.lower()
+            # Case-insensitive match
+            matched_key = lowered_map.get(key_lower)
+            if matched_key and row[matched_key] not in (None, ""):
+                return row[matched_key]
+        return None
+
+    @staticmethod
+    def _to_float(value: Any) -> Optional[float]:
+        """Best-effort conversion to float."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned or cleaned.lower() in {"na", "n/a", "null"}:
+                return None
+            cleaned = cleaned.replace(",", "")
+            try:
+                return float(cleaned)
+            except ValueError:
+                return None
+        return None

@@ -380,7 +380,12 @@ class NormalizationService:
             "market_price": ["market", "delivery_location", "delivery_date", "delivery_hour", "price"],
             "trade": ["market", "delivery_location", "delivery_date", "delivery_hour", "price", "quantity"],
             "curve": ["market", "curve_type", "delivery_date", "delivery_hour", "price"],
-            "system_status": ["market", "delivery_location", "timestamp", "status_type"]
+            "system_status": ["market", "delivery_location", "timestamp", "status_type"],
+            "lmp": ["market", "node", "timestamp", "lmp_usd_per_mwh"],
+            "as": ["market", "timestamp", "product", "cleared_price_usd_per_mwh"],
+            "pra": ["market", "auction", "planning_zone", "clearing_price_usd_per_mw_day"],
+            "arr": ["market", "auction", "path", "clearing_price_usd_per_mw"],
+            "tcr": ["market", "auction", "path", "clearing_price_usd_per_mw"],
         }
 
         data_type = data.get("data_type", "unknown")
@@ -535,7 +540,7 @@ class NormalizationService:
 
         # Check data type validity
         data_type = data.get("data_type")
-        if data_type and data_type not in ["market_price", "trade", "curve", "system_status"]:
+        if data_type and data_type not in ["market_price", "trade", "curve", "system_status", "lmp", "as", "pra", "arr", "tcr"]:
             score -= 0.1
 
         return max(0.0, score)

@@ -5,7 +5,7 @@ mode: batch
 schedule: "0 */2 * * *"
 enabled: true
 output_topic: ingestion.caiso.raw.v1
-schema: schemas/raw_caiso_trade.avsc
+schema: ../../../specs/events/market/ingestion.market.ticks.raw.v1.avsc
 retries: 3
 backoff_seconds: 30
 tenant_strategy: single

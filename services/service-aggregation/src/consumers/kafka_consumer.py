@@ -149,7 +149,25 @@ class KafkaConsumerService:
                 return
             
             # Extract enriched data from message payload
-            enriched_data = message_data.get("payload", message_data)
+            payload = message_data.get("payload", message_data)
+            if not isinstance(payload, dict):
+                self.logger.warning(
+                    "Skipping message with non-dict payload",
+                    payload_type=type(payload).__name__
+                )
+                return
+            enriched_data = dict(payload)
+            
+            # Propagate envelope metadata for downstream producers
+            trace_id = message_data.get("trace_id")
+            if trace_id and "trace_id" not in enriched_data:
+                enriched_data["trace_id"] = trace_id
+            tenant_id = message_data.get("tenant_id")
+            if tenant_id and not enriched_data.get("tenant_id"):
+                enriched_data["tenant_id"] = tenant_id
+            occurred_at = message_data.get("occurred_at")
+            if occurred_at and not enriched_data.get("occurred_at"):
+                enriched_data["occurred_at"] = occurred_at
             
             # Add message metadata
             enriched_data["_kafka_metadata"] = {
@@ -252,4 +270,3 @@ class KafkaConsumerService:
             "last_message_time": None,
             "processing_latency_ms": []
         }
-

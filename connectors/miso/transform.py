@@ -1,245 +1,242 @@
 """
 MISO data transformation implementation.
-
-This module provides the MISO transformer for converting raw MISO data
-into the standardized format expected by the ingestion platform.
 """
 
-import json
-import logging
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import structlog
 from pydantic import BaseModel, Field
 
-from ..base import BaseConnector, ExtractionResult, TransformationResult
-from ..base.exceptions import TransformationError, ValidationError
-from ..base.utils import setup_logging
+from ..base.exceptions import TransformationError
 
 
 class MISOTransformConfig(BaseModel):
-    """MISO transformation configuration."""
-    
-    timezone: str = Field("UTC", description="Target timezone for timestamps")
-    decimal_precision: int = Field(6, description="Decimal precision for prices")
-    validate_required_fields: bool = Field(True, description="Validate required fields")
-    sanitize_numeric: bool = Field(True, description="Sanitize numeric values")
-    standardize_timezone: bool = Field(True, description="Standardize timezone")
+    """Transformation configuration for MISO datasets."""
+
+    tenant_id: str = Field("default", description="Target tenant identifier")
+    schema_version: str = Field("1.0.0", description="Envelope schema version")
+    producer: str = Field("ingestion-miso@v1.0.0", description="Producer identifier for emitted events")
+    market: str = Field("miso", description="Normalized market identifier")
 
 
 class MISOTransform:
-    """MISO data transformer."""
-    
-    def __init__(self, config: MISOTransformConfig):
-        """
-        Initialize the MISO transformer.
-        
-        Args:
-            config: Transformation configuration
-        """
-        self.config = config
-        self.logger = setup_logging(self.__class__.__name__)
-    
-    def sanitize_numeric(self, value: Any, field_name: str) -> Optional[float]:
-        """
-        Sanitize numeric values.
-        
-        Args:
-            value: Value to sanitize
-            field_name: Field name for logging
-            
-        Returns:
-            Optional[float]: Sanitized numeric value
-        """
+    """Transform normalized MISO rows into ingestion events."""
+
+    def __init__(self, config: Optional[MISOTransformConfig] = None):
+        self.config = config or MISOTransformConfig()
+
+    def transform_lmp(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        for row in rows:
+            timestamp = row.get("timestamp")
+            node = row.get("node")
+            if not timestamp or not node:
+                continue
+
+            occurred_at = self._parse_timestamp(timestamp)
+            event_id = f"miso_lmp_{node}_{timestamp}"
+            payload = {
+                "market": self.config.market,
+                "data_type": "lmp",
+                "timestamp": timestamp,
+                "node": node,
+                "market_run": row.get("market_run"),
+                "lmp_usd_per_mwh": self._safe_float(row.get("lmp")),
+                "congestion_usd_per_mwh": self._safe_float(row.get("congestion")),
+                "loss_usd_per_mwh": self._safe_float(row.get("loss")),
+                "energy_usd_per_mwh": self._safe_float(row.get("energy")),
+            }
+            events.append(self._build_event(event_id, occurred_at, payload))
+        return events
+
+    def transform_as(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        for row in rows:
+            timestamp = row.get("timestamp")
+            product = row.get("product")
+            if not timestamp or not product:
+                continue
+
+            occurred_at = self._parse_timestamp(timestamp)
+            event_id = f"miso_as_{product}_{timestamp}"
+            payload = {
+                "market": self.config.market,
+                "data_type": "as",
+                "timestamp": timestamp,
+                "product": product,
+                "zone": row.get("zone"),
+                "cleared_price_usd_per_mwh": self._safe_float(row.get("cleared_price")),
+                "cleared_quantity_mw": self._safe_float(row.get("cleared_mw")),
+            }
+            events.append(self._build_event(event_id, occurred_at, payload))
+        return events
+
+    def transform_pra(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        for row in rows:
+            auction = row.get("auction")
+            zone = row.get("planning_zone")
+            if not auction or not zone:
+                continue
+
+            auction_date = row.get("auction_date")
+            occurred_at = self._parse_date_or_now(auction_date)
+            event_id = f"miso_pra_{auction}_{zone}"
+            payload = {
+                "market": self.config.market,
+                "data_type": "pra",
+                "auction": auction,
+                "auction_date": auction_date,
+                "planning_zone": zone,
+                "planning_year": row.get("planning_year"),
+                "clearing_price_usd_per_mw_day": self._safe_float(row.get("clearing_price")),
+                "awarded_quantity_mw": self._safe_float(row.get("awarded_mw")),
+            }
+            events.append(self._build_event(event_id, occurred_at, payload))
+        return events
+
+    def transform_arr(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        for row in rows:
+            auction = row.get("auction")
+            path = row.get("path")
+            if not auction or not path:
+                continue
+
+            auction_date = row.get("auction_date")
+            occurred_at = self._parse_date_or_now(auction_date)
+            event_id = f"miso_arr_{auction}_{path}"
+            payload = {
+                "market": self.config.market,
+                "data_type": "arr",
+                "auction": auction,
+                "auction_date": auction_date,
+                "path": path,
+                "source": row.get("source"),
+                "sink": row.get("sink"),
+                "class_type": row.get("class_type"),
+                "clearing_price_usd_per_mw": self._safe_float(row.get("clearing_price")),
+                "awarded_quantity_mw": self._safe_float(row.get("awarded_mw")),
+            }
+            events.append(self._build_event(event_id, occurred_at, payload))
+        return events
+
+    def transform_tcr(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        for row in rows:
+            auction = row.get("auction")
+            path = row.get("path")
+            if not auction or not path:
+                continue
+
+            auction_date = row.get("auction_date")
+            occurred_at = self._parse_date_or_now(auction_date)
+            event_id = f"miso_tcr_{auction}_{path}"
+            payload = {
+                "market": self.config.market,
+                "data_type": "tcr",
+                "auction": auction,
+                "auction_date": auction_date,
+                "path": path,
+                "source": row.get("source"),
+                "sink": row.get("sink"),
+                "class_type": row.get("class_type"),
+                "round_id": row.get("round_id"),
+                "clearing_price_usd_per_mw": self._safe_float(row.get("clearing_price")),
+                "awarded_quantity_mw": self._safe_float(row.get("awarded_mw")),
+            }
+            events.append(self._build_event(event_id, occurred_at, payload))
+        return events
+
+    def transform(self, rows: List[Dict[str, Any]], data_type: str) -> List[Dict[str, Any]]:
+        """Dispatch transformation based on data_type."""
+        if data_type == "lmp":
+            return self.transform_lmp(rows)
+        if data_type == "as":
+            return self.transform_as(rows)
+        if data_type == "pra":
+            return self.transform_pra(rows)
+        if data_type == "arr":
+            return self.transform_arr(rows)
+        if data_type == "tcr":
+            return self.transform_tcr(rows)
+        raise TransformationError(f"Unsupported transformation for data_type={data_type}")
+
+    # ------------------------------------------------------------------
+    # Helper utilities
+    # ------------------------------------------------------------------
+
+    def _build_event(self, event_id: str, occurred_at: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Construct the ingestion event envelope."""
+        return {
+            "event_id": event_id,
+            "trace_id": f"{self.config.producer}:{payload.get('data_type', 'unknown')}",
+            "schema_version": self.config.schema_version,
+            "tenant_id": self.config.tenant_id,
+            "producer": self.config.producer,
+            "occurred_at": occurred_at,
+            "ingested_at": int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+            "payload": payload,
+        }
+
+    @staticmethod
+    def _safe_float(value: Any) -> Optional[float]:
         if value is None:
             return None
-        
-        try:
-            if isinstance(value, str):
-                # Remove common non-numeric characters
-                cleaned = value.replace(",", "").replace("$", "").strip()
-                if cleaned == "" or cleaned.upper() == "NULL":
-                    return None
-                return float(cleaned)
-            elif isinstance(value, (int, float)):
-                return float(value)
-            else:
-                self.logger.warning(f"Unexpected type for {field_name}: {type(value)}")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            cleaned = value.strip().replace(",", "")
+            if not cleaned:
                 return None
-        except (ValueError, TypeError) as e:
-            self.logger.warning(f"Failed to sanitize {field_name}: {e}")
-            return None
-    
-    def standardize_timezone(self, timestamp: int) -> int:
-        """
-        Standardize timestamp to UTC.
-        
-        Args:
-            timestamp: Timestamp in microseconds
-            
-        Returns:
-            int: Standardized timestamp in microseconds
-        """
-        try:
-            # Convert microseconds to datetime
-            dt = datetime.fromtimestamp(timestamp / 1_000_000, tz=timezone.utc)
-            
-            # Ensure it's in UTC
-            if dt.tzinfo != timezone.utc:
-                dt = dt.astimezone(timezone.utc)
-            
-            # Convert back to microseconds
-            return int(dt.timestamp() * 1_000_000)
-        except Exception as e:
-            self.logger.warning(f"Failed to standardize timezone: {e}")
-            return timestamp
-    
-    def validate_record(self, record: Dict[str, Any]) -> List[str]:
-        """
-        Validate a transformed record.
-        
-        Args:
-            record: Record to validate
-            
-        Returns:
-            List[str]: List of validation errors
-        """
-        errors = []
-        
-        if self.config.validate_required_fields:
-            required_fields = ["event_id", "occurred_at", "tenant_id", "schema_version", "producer"]
-            
-            for field in required_fields:
-                if field not in record or record[field] is None:
-                    errors.append(f"Missing required field: {field}")
-        
-        # Validate timestamp
-        if "occurred_at" in record and record["occurred_at"] is not None:
             try:
-                timestamp = int(record["occurred_at"])
-                if timestamp <= 0:
-                    errors.append("Invalid timestamp: must be positive")
-            except (ValueError, TypeError):
-                errors.append("Invalid timestamp: must be integer")
-        
-        # Validate price fields
-        price_fields = ["price", "bid_price", "offer_price", "clearing_price", "congestion_price", "loss_price"]
-        for field in price_fields:
-            if field in record and record[field] is not None:
-                try:
-                    price = float(record[field])
-                    if price < 0:
-                        errors.append(f"Invalid {field}: must be non-negative")
-                except (ValueError, TypeError):
-                    errors.append(f"Invalid {field}: must be numeric")
-        
-        # Validate quantity
-        if "quantity" in record and record["quantity"] is not None:
-            try:
-                quantity = float(record["quantity"])
-                if quantity < 0:
-                    errors.append("Invalid quantity: must be non-negative")
-            except (ValueError, TypeError):
-                errors.append("Invalid quantity: must be numeric")
-        
-        return errors
-    
-    async def transform(self, extraction_result: ExtractionResult) -> TransformationResult:
-        """
-        Transform extracted MISO data.
-        
-        Args:
-            extraction_result: Result from the extract operation
-            
-        Returns:
-            TransformationResult: Transformed data and metadata
-        """
+                return float(cleaned)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _parse_timestamp(timestamp_str: Optional[str]) -> int:
+        """Parse ISO timestamps to microseconds since epoch."""
+        if not timestamp_str:
+            return int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+
         try:
-            transformed_data = []
-            validation_errors = []
-            
-            for record in extraction_result.data:
-                try:
-                    # Start with the original record
-                    transformed_record = record.copy()
-                    
-                    # Apply numeric sanitization
-                    if self.config.sanitize_numeric:
-                        numeric_fields = [
-                            "price", "quantity", "bid_price", "offer_price",
-                            "clearing_price", "congestion_price", "loss_price"
-                        ]
-                        
-                        for field in numeric_fields:
-                            if field in transformed_record:
-                                transformed_record[field] = self.sanitize_numeric(
-                                    transformed_record[field], field
-                                )
-                    
-                    # Apply timezone standardization
-                    if self.config.standardize_timezone and "occurred_at" in transformed_record:
-                        transformed_record["occurred_at"] = self.standardize_timezone(
-                            transformed_record["occurred_at"]
-                        )
-                    
-                    # Validate the transformed record
-                    record_errors = self.validate_record(transformed_record)
-                    if record_errors:
-                        validation_errors.extend([
-                            f"Record {transformed_record.get('event_id', 'unknown')}: {error}"
-                            for error in record_errors
-                        ])
-                    
-                    transformed_data.append(transformed_record)
-                    
-                except Exception as e:
-                    self.logger.error(f"Failed to transform record: {e}")
-                    validation_errors.append(f"Transformation error: {e}")
-            
-            # Create transformation metadata
-            transformation_metadata = {
-                "transformation_time": datetime.now(timezone.utc).isoformat(),
-                "config": self.config.dict(),
-                "input_record_count": len(extraction_result.data),
-                "output_record_count": len(transformed_data),
-                "validation_errors_count": len(validation_errors),
-                "transforms_applied": [
-                    "sanitize_numeric" if self.config.sanitize_numeric else None,
-                    "standardize_timezone" if self.config.standardize_timezone else None
-                ]
-            }
-            
-            # Remove None values from transforms_applied
-            transformation_metadata["transforms_applied"] = [
-                t for t in transformation_metadata["transforms_applied"] if t is not None
-            ]
-            
-            return TransformationResult(
-                data=transformed_data,
-                metadata=transformation_metadata,
-                record_count=len(transformed_data),
-                validation_errors=validation_errors
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Failed to transform MISO data: {e}")
-            raise TransformationError(f"MISO data transformation failed: {e}") from e
-    
-    def get_transformation_stats(self) -> Dict[str, Any]:
-        """
-        Get transformation statistics.
-        
-        Returns:
-            Dict[str, Any]: Transformation statistics
-        """
-        return {
-            "config": self.config.dict(),
-            "transforms_available": [
-                "sanitize_numeric",
-                "standardize_timezone"
-            ],
-            "validation_enabled": self.config.validate_required_fields,
-            "timezone": self.config.timezone,
-            "decimal_precision": self.config.decimal_precision
-        }
+            cleaned = timestamp_str.strip()
+            if cleaned.endswith("Z"):
+                cleaned = cleaned.replace("Z", "+00:00")
+            if "+" not in cleaned[-6:] and "-" not in cleaned[-6:]:
+                cleaned = f"{cleaned}+00:00"
+            dt = datetime.fromisoformat(cleaned)
+            return int(dt.astimezone(timezone.utc).timestamp() * 1_000_000)
+        except ValueError:
+            return int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+
+    @staticmethod
+    def _parse_date_or_now(date_str: Optional[str]) -> int:
+        """Parse date strings (YYYY-MM-DD) or fallback to current time."""
+        if not date_str:
+            return int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+
+        patterns = ["%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y"]
+        for pattern in patterns:
+            try:
+                dt = datetime.strptime(date_str, pattern)
+                dt = dt.replace(tzinfo=timezone.utc)
+                return int(dt.timestamp() * 1_000_000)
+            except ValueError:
+                continue
+
+        # Attempt ISO parsing as a last resort
+        try:
+            cleaned = date_str.strip()
+            if cleaned.endswith("Z"):
+                cleaned = cleaned.replace("Z", "+00:00")
+            if "+" not in cleaned[-6:] and "-" not in cleaned[-6:]:
+                cleaned = f"{cleaned}+00:00"
+            dt = datetime.fromisoformat(cleaned)
+            return int(dt.astimezone(timezone.utc).timestamp() * 1_000_000)
+        except ValueError:
+            return int(datetime.now(timezone.utc).timestamp() * 1_000_000)

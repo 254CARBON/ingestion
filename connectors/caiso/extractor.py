@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from ..base import ExtractionResult
@@ -25,13 +25,18 @@ class CAISOExtractor:
     def __init__(self, config: CAISOConnectorConfig):
         self.config = config
         self.logger = setup_logging(self.__class__.__name__)
-        self._client = OASISClient(
-            OASISClientConfig(
-                base_url=getattr(config, "caiso_base_url", "https://oasis.caiso.com/oasisapi"),
-                timeout=getattr(config, "caiso_timeout", 30),
-                user_agent=getattr(config, "caiso_user_agent", "254Carbon/1.0"),
-            )
+        self._client_config = OASISClientConfig(
+            base_url=getattr(config, "caiso_base_url", "https://oasis.caiso.com/oasisapi"),
+            timeout=getattr(config, "caiso_timeout", 30),
+            user_agent=getattr(config, "caiso_user_agent", "254Carbon/1.0"),
         )
+        self._client: Optional[OASISClient] = None
+        self._ensure_client()
+
+    def _ensure_client(self) -> None:
+        """Ensure an active OASIS client is available."""
+        if self._client is None:
+            self._client = OASISClient(self._client_config)
 
     @staticmethod
     def _format_oasis_dt(dt_like: Any) -> str:
@@ -63,9 +68,21 @@ class CAISOExtractor:
             return None
 
     @staticmethod
-    def _to_epoch_us(ts_gmt: str) -> int:
-        # ts like 2025-01-01T00:00:00-00:00
-        dt = datetime.strptime(ts_gmt.replace("-00:00", "+00:00"), "%Y-%m-%dT%H:%M:%S%z")
+    def _to_epoch_us(ts_gmt: Any) -> int:
+        """Convert various timestamp representations to epoch microseconds."""
+        if ts_gmt is None:
+            return int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+        if isinstance(ts_gmt, (int, float)):
+            return int(ts_gmt)
+        if isinstance(ts_gmt, datetime):
+            dt = ts_gmt if ts_gmt.tzinfo else ts_gmt.replace(tzinfo=timezone.utc)
+        else:
+            ts_str = str(ts_gmt)
+            if ts_str.endswith("Z"):
+                ts_str = ts_str[:-1] + "+00:00"
+            if ts_str.endswith("-00:00"):
+                ts_str = ts_str[:-6] + "+00:00"
+            dt = datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%S%z")
         return int(dt.timestamp() * 1_000_000)
 
     async def extract_prc_lmp(
@@ -80,6 +97,7 @@ class CAISOExtractor:
         """Extract PRC_LMP for a time window and node, pivoted per interval."""
         start_str = self._format_oasis_dt(start)
         end_str = self._format_oasis_dt(end)
+        self._ensure_client()
 
         try:
             rows = await self._client.fetch_prc_lmp_csv(
@@ -91,8 +109,6 @@ class CAISOExtractor:
             )
         except Exception as e:
             raise ExtractionError(f"OASIS fetch failed: {e}") from e
-        finally:
-            await self._client.aclose()
 
         if not rows:
             return ExtractionResult(
@@ -206,3 +222,159 @@ class CAISOExtractor:
             record_count=len(processed),
         )
 
+    async def extract_edam(
+        self,
+        start: Any,
+        end: Any,
+        market_run_id: str = "DAM",
+        version: str = "12",
+    ) -> ExtractionResult:
+        """Extract EDAM data from CAISO OASIS."""
+        try:
+            self.logger.info(
+                "Extracting EDAM data",
+                start=start,
+                end=end,
+                market_run_id=market_run_id,
+            )
+
+            start_str = self._format_oasis_dt(start)
+            end_str = self._format_oasis_dt(end)
+
+            self._ensure_client()
+            rows = await self._client.fetch_csv_rows(
+                "EDAM_LMP",
+                {
+                    "version": version,
+                    "startdatetime": start_str,
+                    "enddatetime": end_str,
+                    "market_run_id": market_run_id,
+                },
+            )
+            if not rows:
+                self.logger.warning("No EDAM data rows after parsing")
+                return ExtractionResult(
+                    data=[],
+                    metadata={
+                        "query": {
+                            "start": start_str,
+                            "end": end_str,
+                            "market_run_id": market_run_id,
+                            "version": version,
+                        },
+                        "source": "oasis-singlezip-edam",
+                    },
+                    record_count=0,
+                )
+
+            # Group rows by time/node and pivot components
+            processed = []
+            grouped = {}
+
+            for row in rows:
+                opr_dt = row.get("OPR_DT")
+                opr_hr = self._parse_int(row, "OPR_HR")
+                node_name = row.get("NODE")
+
+                if not opr_dt or not node_name:
+                    continue
+
+                group_key = f"{opr_dt}_{opr_hr}_{node_name}"
+                grouped.setdefault(group_key, []).append(row)
+
+            for group_key, group_rows in grouped.items():
+                lmp = None
+                mcc = None
+                mcl = None
+                mce = None
+                ghg = None
+
+                for row in group_rows:
+                    component = (row.get("LMP_TYPE") or row.get("DATA_ITEM") or "").upper()
+                    if component in ("LMP", "LMP_PRC"):
+                        lmp = self._parse_float(row, ["LMP", "VALUE"])
+                    elif component in ("MCE", "LMP_ENE_PRC"):
+                        mce = self._parse_float(row, ["MCE", "VALUE"])
+                    elif component in ("MCC", "LMP_CONG_PRC"):
+                        mcc = self._parse_float(row, ["MCC", "VALUE"])
+                    elif component in ("MCL", "LMP_LOSS_PRC"):
+                        mcl = self._parse_float(row, ["MCL", "VALUE"])
+                    elif component in ("MGHG", "LMP_GHG_PRC"):
+                        ghg = self._parse_float(row, ["MGHG", "VALUE"])
+                    else:
+                        lmp = lmp or self._parse_float(row, ["LMP"])
+                        mce = mce or self._parse_float(row, ["MCE"])
+                        mcc = mcc or self._parse_float(row, ["MCC"])
+                        mcl = mcl or self._parse_float(row, ["MCL"])
+                        ghg = ghg or self._parse_float(row, ["MGHG"])
+
+                sample = group_rows[0]
+                node_value = sample.get("NODE") or sample.get("RESOURCE_NAME")
+                start_gmt = sample.get("INTERVALSTARTTIME_GMT") or sample.get("INTERVAL_START_GMT")
+                end_gmt = sample.get("INTERVALENDTIME_GMT") or sample.get("INTERVAL_END_GMT")
+
+                record = {
+                    "event_id": str(uuid4()),
+                    "trace_id": "",
+                    "occurred_at": self._to_epoch_us(end_gmt)
+                    if end_gmt
+                    else int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                    "tenant_id": "default",
+                    "schema_version": "1.0.0",
+                    "producer": "caiso-connector-edam",
+                    "market": "CAISO",
+                    "market_id": "CAISO",
+                    "timezone": "UTC",
+                    "currency": "USD",
+                    "unit": "MWh",
+                    "price_unit": "$/MWh",
+                    "data_type": "edam_lmp",
+                    "source": "caiso-oasis-edam",
+                    "trade_id": None,
+                    "delivery_location": node_value,
+                    "delivery_date": sample.get("OPR_DT"),
+                    "delivery_hour": self._parse_int(sample, "OPR_HR"),
+                    "price": lmp,
+                    "quantity": None,
+                    "bid_price": None,
+                    "offer_price": None,
+                    "clearing_price": mce,
+                    "congestion_price": mcc,
+                    "loss_price": mcl,
+                    "ghg_price": ghg,
+                    "curve_type": None,
+                    "price_type": None,
+                    "status_type": None,
+                    "status_value": None,
+                    "timestamp": end_gmt or start_gmt,
+                    "raw_data": json.dumps(group_rows),
+                }
+                processed.append(record)
+
+            return ExtractionResult(
+                data=processed,
+                metadata={
+                    "query": {
+                        "start": start_str,
+                        "end": end_str,
+                        "market_run_id": market_run_id,
+                        "version": version,
+                    },
+                    "source": "oasis-singlezip-edam",
+                    "records": len(processed),
+                },
+                record_count=len(processed),
+            )
+        except Exception as e:
+            self.logger.error("EDAM extraction failed", error=str(e))
+            raise ExtractionError(f"EDAM extraction failed: {e}") from e
+
+    async def close(self) -> None:
+        """Release underlying HTTP client."""
+        try:
+            if self._client:
+                await self._client.aclose()
+        except Exception:
+            pass
+        finally:
+            self._client = None
