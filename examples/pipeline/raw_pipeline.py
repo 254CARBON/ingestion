@@ -26,6 +26,12 @@ from connectors.caiso import CAISOConnector, CAISOConnectorConfig
 
 # Optional connector imports – best-effort
 try:  # pragma: no cover - optional dependency
+    from connectors.aeso import AESOConnector, AESOConnectorConfig  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    AESOConnector = None  # type: ignore
+    AESOConnectorConfig = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
     from connectors.miso import MISOConnector, MISOConnectorConfig  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     MISOConnector = None  # type: ignore
@@ -58,6 +64,9 @@ class RawKafkaIngestionPipeline:
     CONNECTOR_REGISTRY: Dict[str, Tuple[Type[BaseConnector], Type[ConnectorConfig]]] = {
         "caiso": (CAISOConnector, CAISOConnectorConfig),
     }
+    
+    if AESOConnector and AESOConnectorConfig:  # pragma: no branch - optional
+        CONNECTOR_REGISTRY["aeso"] = (AESOConnector, AESOConnectorConfig)  # type: ignore[arg-type]
     
     if MISOConnector and MISOConnectorConfig:  # pragma: no branch - optional
         CONNECTOR_REGISTRY["miso"] = (MISOConnector, MISOConnectorConfig)  # type: ignore[arg-type]

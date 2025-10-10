@@ -1,0 +1,21 @@
+name: aeso
+version: 1.0.0
+market: AESO
+mode: batch
+schedule: "*/30 * * * *"
+enabled: true
+output_topic: ingestion.aeso.raw.v1
+schema: ../../../specs/events/market/ingestion.market.ticks.raw.v1.avsc
+retries: 3
+backoff_seconds: 30
+tenant_strategy: single
+transforms:
+  - name: sanitize_numeric
+  - name: standardize_timezone
+owner: platform
+description: "AESO market data connector for pool price, system marginal price, internal load, and supply-demand snapshots."
+tags:
+  - market-data
+  - energy
+  - canada
+  - utility

@@ -4,72 +4,103 @@ PJM connector configuration.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+from pydantic import Field
 
 from ..base.base_connector import ConnectorConfig
+
+
+def _default_dataset_configs() -> Dict[str, Dict[str, Any]]:
+    """Default dataset metadata for PJM Data Miner and API endpoints."""
+    return {
+        "lmp": {
+            "base": "data_miner",
+            "path": "/rest/api/v1/reporting/da_hrl_lmps",
+            "format": "json",
+            "data_key": "items",
+            "time_params": {"start": "datetime_beginning_ept", "end": "datetime_ending_ept"},
+            "time_format": "%Y-%m-%dT%H:%M:%S",
+            "description": "Day-Ahead hourly LMPs",
+        },
+        "rtm_lmp": {
+            "base": "data_miner",
+            "path": "/rest/api/v1/reporting/rt_hrl_lmps",
+            "format": "json",
+            "data_key": "items",
+            "time_params": {"start": "datetime_beginning_ept", "end": "datetime_ending_ept"},
+            "time_format": "%Y-%m-%dT%H:%M:%S",
+            "description": "Real-Time hourly LMPs",
+        },
+        "rpm": {
+            "base": "api",
+            "path": "/capacity_market_results",
+            "format": "json",
+            "data_key": "items",
+            "time_params": {"start": "start_date", "end": "end_date"},
+            "time_format": "%Y-%m-%d",
+            "description": "Reliability Pricing Model auction results",
+        },
+        "tcr": {
+            "base": "api",
+            "path": "/tcr_auction_results",
+            "format": "json",
+            "data_key": "items",
+            "time_params": {"start": "start_date", "end": "end_date"},
+            "time_format": "%Y-%m-%d",
+            "description": "Transmission Congestion Rights auction results",
+        },
+        "outages": {
+            "base": "api",
+            "path": "/generation_outages",
+            "format": "json",
+            "data_key": "items",
+            "time_params": {"start": "start_datetime", "end": "end_datetime"},
+            "time_format": "%Y-%m-%dT%H:%M:%S",
+            "description": "Generation outage status records",
+        },
+    }
 
 
 class PJMConnectorConfig(ConnectorConfig):
     """PJM connector configuration."""
 
-    # API endpoints
-    base_url: str = "https://api.pjm.com/api/v1"
-    data_miner_url: str = "https://dataminer2.pjm.com"
+    description: str = Field("PJM market data connector", description="Connector description")
+    tags: List[str] = Field(default_factory=lambda: ["pjm", "market"], description="Connector tags")
 
-    # Authentication (API key or OAuth)
-    api_key: Optional[str] = None
-    client_id: Optional[str] = None
-    client_secret: Optional[str] = None
+    data_miner_base_url: str = Field(
+        "https://dataminer2.pjm.com",
+        description="Base URL for PJM Data Miner endpoints",
+    )
+    api_base_url: str = Field(
+        "https://api.pjm.com/api/v1",
+        description="Base URL for PJM API endpoints",
+    )
+    api_timeout: float = Field(60.0, description="Request timeout in seconds")
+    api_key: Optional[str] = Field(
+        None,
+        description="Subscription key for PJM Data Miner and API access",
+    )
+    client_id: Optional[str] = Field(None, description="OAuth client ID when API key not provided")
+    client_secret: Optional[str] = Field(None, description="OAuth client secret when API key not provided")
 
-    # Data endpoints
-    lmp_endpoint: str = "/da_hrl_lmps"
-    rtm_lmp_endpoint: str = "/rt_hrl_lmps"
-    rpm_endpoint: str = "/capacity_market_results"
-    tcr_endpoint: str = "/tcr_auction_results"
-    outages_endpoint: str = "/outages"
+    retry_attempts: int = Field(3, description="Retry attempts for transient failures")
+    retry_delay_seconds: int = Field(10, description="Base delay between retries in seconds")
+    max_concurrent_requests: int = Field(3, description="Maximum concurrent API requests")
+    default_start_hours_back: int = Field(24, description="Default lookback window in hours")
 
-    # Report configurations
-    report_configs: Dict[str, Dict[str, Any]] = {
-        "lmp": {
-            "report_type": "LMP",
-            "frequency": "hourly",
-            "data_items": ["lmp", "mcc", "mlc"],
-            "download_format": "csv"
-        },
-        "rpm": {
-            "report_type": "RPM",
-            "frequency": "auction",
-            "data_items": ["clearing_price", "capacity_obligations"],
-            "download_format": "csv"
-        },
-        "tcr": {
-            "report_type": "TCR",
-            "frequency": "auction",
-            "data_items": ["auction_price", "awarded_quantity"],
-            "download_format": "csv"
-        },
-        "outages": {
-            "report_type": "OUTAGES",
-            "frequency": "real_time",
-            "data_items": ["outage_start", "outage_end", "capacity_mw"],
-            "download_format": "csv"
-        }
-    }
+    dataset_configs: Dict[str, Dict[str, Any]] = Field(
+        default_factory=_default_dataset_configs,
+        description="Dataset metadata keyed by data_type",
+    )
 
-    # Rate limiting
-    requests_per_minute: int = 30
-    retry_attempts: int = 3
-    retry_delay_seconds: int = 10
+    class Config:
+        """Pydantic configuration."""
 
-    # Data processing
-    batch_size: int = 1000
-    max_concurrent_requests: int = 3
+        extra = "forbid"
+        validate_assignment = True
 
-    # Default parameters
-    default_start_hours_back: int = 24
-    default_market_run_id: str = "DAM"
-
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         if not self.api_key and not (self.client_id and self.client_secret):
-            raise ValueError("PJM connector requires either api_key or client_id + client_secret")
+            raise ValueError("PJM connector requires either api_key or client credentials")

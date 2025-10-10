@@ -1,23 +1,24 @@
-name: "pjm"
-description: "PJM connector for LMP, RPM, TCR, and outage datasets via Data Miner and public APIs"
+name: "isone"
+description: "ISO-NE connector for LMP, FCM, FTR, and generation outage datasets via web services"
 version: "1.1.0"
 
 # Connector configuration
 config:
-  api_key: "${PJM_API_KEY}"
-  data_miner_base_url: "${PJM_DATA_MINER_BASE_URL:https://dataminer2.pjm.com}"
-  api_base_url: "${PJM_API_BASE_URL:https://api.pjm.com/api/v1}"
+  api_key: "${ISONE_API_KEY}"
+  # username: "${ISONE_USERNAME}"
+  # password: "${ISONE_PASSWORD}"
+  base_url: "${ISONE_BASE_URL:https://webservices.iso-ne.com/api}"
   api_timeout: 60
   retry_attempts: 3
-  retry_delay_seconds: 10
-  max_concurrent_requests: 3
+  retry_delay_seconds: 15
+  max_concurrent_requests: 2
   default_start_hours_back: 24
 
-market: "PJM"
+market: "ISO-NE"
 mode: "batch"
 schedule: "0 * * * *"
 enabled: true
-output_topic: "ingestion.pjm.raw.v1"
+output_topic: "ingestion.isone.raw.v1"
 schema: "../../../specs/events/market/ingestion.market.ticks.raw.v1.avsc"
 retries: 3
 backoff_seconds: 30
@@ -28,31 +29,31 @@ transforms:
 tags:
   - market-data
   - energy
-  - pjm
+  - isone
   - outages
 
 # Supported data types
 supported_data_types:
   - "lmp"
-  - "rtm_lmp"
-  - "rpm"
-  - "tcr"
+  - "rt_lmp"
+  - "fcm"
+  - "ftr"
   - "outages"
 
 # Dataset-specific schedules
 dataset_schedules:
   lmp: "0 * * * *"
-  rtm_lmp: "0 * * * *"
-  rpm: "30 1 * * *"
-  tcr: "0 3 * * *"
+  rt_lmp: "0 * * * *"
+  fcm: "15 2 * * *"
+  ftr: "30 3 * * *"
   outages: "0 */6 * * *"
 
 # Output topics (normalized)
 output_topics:
   lmp: "normalized.market.ticks.v1"
-  rtm_lmp: "normalized.market.ticks.v1"
-  rpm: "normalized.market.ticks.v1"
-  tcr: "normalized.market.ticks.v1"
+  rt_lmp: "normalized.market.ticks.v1"
+  fcm: "normalized.market.ticks.v1"
+  ftr: "normalized.market.ticks.v1"
   outages: "normalized.market.ticks.v1"
 
 # Quality checks
@@ -67,5 +68,5 @@ quality_checks:
 
   - name: "price_range_check"
     enabled: true
-    min_price: -200
+    min_price: -500
     max_price: 10000

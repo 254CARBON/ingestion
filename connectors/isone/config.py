@@ -4,71 +4,92 @@ ISO-NE connector configuration.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+from pydantic import Field
 
 from ..base.base_connector import ConnectorConfig
+
+
+def _default_dataset_configs() -> Dict[str, Dict[str, Any]]:
+    """Default dataset metadata for ISO-NE web services."""
+    return {
+        "lmp": {
+            "path": "/v1.1/lmp/da",
+            "format": "json",
+            "data_key": "data",
+            "time_params": {"start": "start", "end": "end"},
+            "time_format": "%Y%m%d%H%M",
+            "description": "Day-Ahead locational marginal prices",
+        },
+        "rt_lmp": {
+            "path": "/v1.1/lmp/rt",
+            "format": "json",
+            "data_key": "data",
+            "time_params": {"start": "start", "end": "end"},
+            "time_format": "%Y%m%d%H%M",
+            "description": "Real-Time locational marginal prices",
+        },
+        "fcm": {
+            "path": "/v1.1/capacity/fcm",
+            "format": "json",
+            "data_key": "data",
+            "time_params": {"start": "startdate", "end": "enddate"},
+            "time_format": "%Y%m%d",
+            "description": "Forward Capacity Market auction results",
+        },
+        "ftr": {
+            "path": "/v1.1/ftr/auction",
+            "format": "json",
+            "data_key": "data",
+            "time_params": {"start": "startdate", "end": "enddate"},
+            "time_format": "%Y%m%d",
+            "description": "Financial Transmission Rights auction results",
+        },
+        "outages": {
+            "path": "/v1.1/outage/generation",
+            "format": "json",
+            "data_key": "data",
+            "time_params": {"start": "start", "end": "end"},
+            "time_format": "%Y-%m-%dT%H:%M:%S",
+            "description": "Generation outage events",
+        },
+    }
 
 
 class ISONEConnectorConfig(ConnectorConfig):
     """ISO-NE connector configuration."""
 
-    # API endpoints
-    base_url: str = "https://webservices.iso-ne.com/api"
-    data_url: str = "https://www.iso-ne.com/ws/wsclient"
+    description: str = Field("ISO-NE market data connector", description="Connector description")
+    tags: List[str] = Field(default_factory=lambda: ["isone", "market"], description="Connector tags")
 
-    # Authentication (API key or OAuth)
-    api_key: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
+    base_url: str = Field(
+        "https://webservices.iso-ne.com/api",
+        description="Base URL for ISO-NE web services",
+    )
+    api_timeout: float = Field(60.0, description="Request timeout in seconds")
 
-    # Data endpoints
-    lmp_endpoint: str = "/v1.1/lmp/da"
-    rtm_lmp_endpoint: str = "/v1.1/lmp/rt"
-    fcm_endpoint: str = "/v1.1/capacity/fcm"
-    ftr_endpoint: str = "/v1.1/ftr/auction"
+    api_key: Optional[str] = Field(None, description="API key for ISO-NE web services")
+    username: Optional[str] = Field(None, description="Username for ISO-NE basic authentication")
+    password: Optional[str] = Field(None, description="Password for ISO-NE basic authentication")
 
-    # Report configurations
-    report_configs: Dict[str, Dict[str, Any]] = {
-        "lmp": {
-            "report_type": "LMP",
-            "frequency": "hourly",
-            "data_items": ["lmp", "congestion", "losses"],
-            "download_format": "csv"
-        },
-        "rt_lmp": {
-            "report_type": "RT_LMP",
-            "frequency": "hourly",
-            "data_items": ["lmp", "congestion", "losses"],
-            "download_format": "csv"
-        },
-        "fcm": {
-            "report_type": "FCM",
-            "frequency": "auction",
-            "data_items": ["clearing_price", "capacity_obligations"],
-            "download_format": "csv"
-        },
-        "ftr": {
-            "report_type": "FTR",
-            "frequency": "auction",
-            "data_items": ["auction_price", "awarded_quantity"],
-            "download_format": "csv"
-        }
-    }
+    retry_attempts: int = Field(3, description="Retry attempts for transient failures")
+    retry_delay_seconds: int = Field(15, description="Base delay between retry attempts")
+    max_concurrent_requests: int = Field(2, description="Maximum concurrent API requests")
+    default_start_hours_back: int = Field(24, description="Default lookback window in hours")
 
-    # Rate limiting
-    requests_per_minute: int = 20
-    retry_attempts: int = 3
-    retry_delay_seconds: int = 15
+    dataset_configs: Dict[str, Dict[str, Any]] = Field(
+        default_factory=_default_dataset_configs,
+        description="Dataset metadata keyed by data_type",
+    )
 
-    # Data processing
-    batch_size: int = 1000
-    max_concurrent_requests: int = 2
+    class Config:
+        """Pydantic configuration."""
 
-    # Default parameters
-    default_start_hours_back: int = 24
-    default_market_run_id: str = "DAM"
+        extra = "forbid"
+        validate_assignment = True
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         if not self.api_key and not (self.username and self.password):
-            raise ValueError("ISO-NE connector requires either api_key or username + password")
+            raise ValueError("ISO-NE connector requires either api_key or username/password credentials")
