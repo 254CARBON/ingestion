@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: refdata-producer
+  namespace: ingestion
+  labels:
+    app: refdata-producer
+    component: connector
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: refdata-producer
+            component: connector
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: refdata-producer
+            image: 254carbon/refdata-producer:latest
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "refdata-producer"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.name=refdata-producer,service.version=0.1.0,deployment.environment=local"
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "256Mi"
+                cpu: "200m"
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL

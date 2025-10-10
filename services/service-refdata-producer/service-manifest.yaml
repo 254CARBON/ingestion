@@ -1,0 +1,17 @@
+service_name: refdata-producer
+domain: ingestion
+runtime: python
+api_contracts: []
+events_in: []
+events_out:
+  - ingestion.instruments.raw.v1
+dependencies:
+  internal: []
+  external: [kafka]
+maturity: alpha
+sla:
+  p95_latency_ms: 100
+  availability: "99.0%"
+owner: ingestion
+description: "Reference data producer service that generates sample instrument data for testing the data pipeline"
+version: "0.1.0"
