@@ -1,0 +1,5 @@
+symbol,timestamp,source_id,market,sequence,price,volume,notes
+NG_FM,2025-10-09T23:20:00Z,sim-feed-1,MISO,1001,2.45,1200,baseline tick
+NG_FM,2025-10-09T23:20:01Z,sim-feed-1,MISO,1002,2.47,900,follow-up tick
+NG_FM,invalid_ts,sim-feed-1,MISO,1003,2.51,800,invalid timestamp triggers fallback
+BAD_ROW,,sim-feed-1,MISO,,2.40,500,missing timestamp should be skipped

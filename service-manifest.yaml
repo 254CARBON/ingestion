@@ -1,0 +1,73 @@
+## Domain Manifest: Ingestion
+domain: ingestion
+version: 0.2.0
+description: >
+  Connectors and bridge services that collect raw market data, persist raw payloads,
+  and publish normalized-ready events into Kafka.
+owner: platform
+product_manager: TBD
+maturity: beta
+runtime_stack:
+  primary: python
+  secondary: scala
+services:
+  - name: connector-registry
+    manifest: services/service-connector-registry/service-manifest.yaml
+    produces:
+      - ingestion.market.ticks.raw.v1
+    consumes: []
+  - name: data-quality
+    manifest: services/service-data-quality/service-manifest.yaml
+    produces:
+      - ingestion.market.ticks.raw.v1
+    consumes:
+      - ingestion.market.ticks.raw.v1
+  - name: normalization
+    manifest: services/service-normalization/service-manifest.yaml
+    produces:
+      - normalized.market.ticks.v1
+    consumes:
+      - ingestion.market.ticks.raw.v1
+  - name: enrichment
+    manifest: services/service-enrichment/service-manifest.yaml
+    produces:
+      - enriched.market.ticks.v1
+    consumes:
+      - normalized.market.ticks.v1
+contracts:
+  events_produced:
+    - name: ingestion.market.ticks.raw.v1
+      schema: specs/events/market/ingestion.market.ticks.raw.v1.avsc
+      compatibility: BACKWARD
+    - name: normalized.market.ticks.v1
+      schema: specs/events/market/normalized.market.ticks.v1.avsc
+      compatibility: BACKWARD
+    - name: processing.deadletter.market.ticks.v1
+      schema: specs/events/market/processing.deadletter.market.ticks.v1.avsc
+      compatibility: BACKWARD
+  asyncapi:
+    - id: market-ticks
+      file: specs/asyncapi/market-ticks.yaml
+      version: 0.2.0
+  openapi: []
+dependencies:
+  platforms:
+    - kafka@>=3.5
+    - schema-registry@>=7.4
+    - minio@>=2023
+  shared_services:
+    - observability
+    - security
+quality:
+  contract_validation:
+    enabled: true
+    pipeline: specs/Makefile validate
+  data_quality_checks: true
+observability:
+  dashboards:
+    - grafana/ingestion-overview
+  alerts:
+    - ingestion-lag
+    - ingestion-error-rate
+notes:
+  - "Bronze layer topics are authoritative for replay and audit purposes."

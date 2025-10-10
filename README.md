@@ -229,6 +229,23 @@ connectors/
 | Schedule change | Patch |
 | New entity | Add new schema file |
 
+### CSV Market Tick Producer (Phase 3)
+- **Purpose**: Tail or replay flat-file feeds and publish `ingestion.market.ticks.raw.v1` with the standard envelope. Serialization failures are automatically mirrored to `processing.deadletter.market.ticks.v1`.
+- **Idempotency**: `event_id = sha256(symbol, timestamp, source_id)` keeps downstream loads idempotent and deduplicates within a sliding cache.
+- **Retry semantics**: Publish attempts honour exponential backoff (`DATA_PROC_MAX_RETRIES`, `DATA_PROC_BACKOFF_SECONDS`, `DATA_PROC_MAX_BACKOFF`) before DLQ fallback.
+- **Required env vars**:
+  - `DATA_PROC_SOURCE_PATH`: absolute or repo-relative CSV file to tail (header row required).
+  - `DATA_PROC_KAFKA_BOOTSTRAP`: Kafka bootstrap string (e.g., `kafka:9092`).
+- **Optional env vars**: `DATA_PROC_SCHEMA_REGISTRY` (default `http://localhost:8081`), `DATA_PROC_TENANT_ID`, `DATA_PROC_PRODUCER_ID`, `DATA_PROC_DEFAULT_MARKET`, along with overrides documented via `--help`.
+- **Run locally**:
+  ```bash
+  # From repo root
+  DATA_PROC_SOURCE_PATH=path/to/your_ticks.csv \
+  DATA_PROC_KAFKA_BOOTSTRAP=localhost:9092 \
+  python3 -m ingestion.connectors.csv_market_ticks.producer --mode replay
+  ```
+  Without `--mode replay` the process stays attached and tails the file for new rows (default `follow` mode).
+
 ---
 
 ## Airflow Layer
