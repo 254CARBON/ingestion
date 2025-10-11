@@ -3,6 +3,7 @@ OpenTelemetry tracing for the Normalization Service.
 """
 
 import time
+import os
 from typing import Dict, Any, Optional, Callable
 from functools import wraps
 import asyncio
@@ -28,12 +29,45 @@ logger = structlog.get_logger(__name__)
 tracer = None
 
 
+def _build_otlp_exporter_kwargs(endpoint_override: Optional[str] = None) -> Dict[str, Any]:
+    endpoint = (
+        endpoint_override
+        or os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        or "http://otel-collector:4317"
+    )
+    headers_env = os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
+    headers: Dict[str, str] = {}
+    if headers_env:
+        for segment in headers_env.split(","):
+            if not segment or "=" not in segment:
+                continue
+            key, value = segment.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key:
+                headers[key] = value
+
+    exporter_kwargs: Dict[str, Any] = {"endpoint": endpoint}
+    if headers:
+        exporter_kwargs["headers"] = headers
+
+    certificate = os.getenv("OTEL_EXPORTER_OTLP_CERTIFICATE")
+    if certificate:
+        exporter_kwargs["certificate_file"] = certificate
+
+    if endpoint.startswith("http://"):
+        exporter_kwargs["insecure"] = True
+
+    return exporter_kwargs
+
+
 def init_tracing(
     service_name: str = "normalization-service",
     service_version: str = "1.0.0",
     environment: str = "production",
     jaeger_endpoint: str = "http://jaeger:14268/api/traces",
-    otlp_endpoint: str = "http://otel-collector:4317"
+    otlp_endpoint: Optional[str] = None
 ):
     """Initialize OpenTelemetry tracing."""
     global tracer
@@ -56,10 +90,7 @@ def init_tracing(
         agent_port=14268,
     )
     
-    otlp_exporter = OTLPSpanExporter(
-        endpoint=otlp_endpoint,
-        insecure=True
-    )
+    otlp_exporter = OTLPSpanExporter(**_build_otlp_exporter_kwargs(otlp_endpoint))
     
     # Create span processors
     span_processor = BatchSpanProcessor(jaeger_exporter)

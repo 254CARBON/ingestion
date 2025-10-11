@@ -1,0 +1,68 @@
+name: "eia_860_861_923"
+description: "EIA 860/861/923 connector for generator, utility, and fuel consumption data"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  eia_api_key: "${EIA_API_KEY}"
+  eia_base_url: "${EIA_BASE_URL:https://api.eia.gov/v2}"
+  eia_timeout: 60
+  eia_rate_limit: 100
+  eia_retry_attempts: 3
+  eia_backoff_factor: 2.0
+  batch_size: 1000
+  max_records: 10000
+
+market: "EIA"
+mode: "batch"
+schedule: "0 2 * * *"  # Daily at 2 AM
+enabled: true
+
+# Raw output topics for different datasets
+output_topics:
+  eia_860: "ingestion.reference.eia.860.raw.v1"
+  eia_861: "ingestion.reference.eia.861.raw.v1"
+  eia_923: "ingestion.reference.eia.923.raw.v1"
+
+schema: "../../../specs/events/reference/ingestion.reference.eia.raw.v1.avsc"
+retries: 3
+backoff_seconds: 30
+tenant_strategy: "single"
+
+transforms:
+  - name: sanitize_numeric
+  - name: add_reference_metadata
+
+tags:
+  - reference-data
+  - energy
+  - generators
+  - utilities
+  - fuel-consumption
+
+# Supported data types
+supported_data_types:
+  - "eia_860"
+  - "eia_861"
+  - "eia_923"
+
+# Schedule overrides per dataset
+dataset_schedules:
+  eia_860: "0 2 * * *"    # Daily generator data
+  eia_861: "0 3 * * *"    # Daily utility data
+  eia_923: "0 4 * * *"    # Daily fuel consumption
+
+# Dataset configurations
+dataset_configs:
+  eia_860:
+    dataset: "electricity/data/eia860"
+    description: "Generator and utility data"
+    fields: ["plant_code", "generator_id", "nameplate_capacity", "fuel_type", "technology"]
+  eia_861:
+    dataset: "electricity/data/eia861"
+    description: "Utility sales and revenue data"
+    fields: ["utility_id", "state", "sales_revenue", "customers"]
+  eia_923:
+    dataset: "electricity/data/eia923"
+    description: "Fuel consumption and generation data"
+    fields: ["plant_code", "generator_id", "fuel_consumed", "net_generation", "fuel_type"]

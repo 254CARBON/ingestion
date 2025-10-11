@@ -6,6 +6,7 @@ distributed tracing across the projection service.
 """
 
 import logging
+import os
 from contextlib import contextmanager
 from typing import Dict, Any, Optional
 
@@ -17,6 +18,38 @@ from opentelemetry.exporter.jaeger.thrift import JaegerExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import Status, StatusCode
+
+
+def _build_otlp_exporter_kwargs(default_endpoint: str = "http://otel-collector:4317") -> Dict[str, Any]:
+    endpoint = (
+        os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        or default_endpoint
+    )
+    headers_env = os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
+    headers: Dict[str, str] = {}
+    if headers_env:
+        for segment in headers_env.split(","):
+            if not segment or "=" not in segment:
+                continue
+            key, value = segment.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key:
+                headers[key] = value
+
+    exporter_kwargs: Dict[str, Any] = {"endpoint": endpoint}
+    if headers:
+        exporter_kwargs["headers"] = headers
+
+    certificate = os.getenv("OTEL_EXPORTER_OTLP_CERTIFICATE")
+    if certificate:
+        exporter_kwargs["certificate_file"] = certificate
+
+    if endpoint.startswith("http://"):
+        exporter_kwargs["insecure"] = True
+
+    return exporter_kwargs
 
 
 class ProjectionTracer:
@@ -67,10 +100,7 @@ class ProjectionTracer:
 
         # Try to add OTLP exporter if available
         try:
-            otlp_exporter = OTLPSpanExporter(
-                endpoint="http://localhost:4317",
-                insecure=True
-            )
+            otlp_exporter = OTLPSpanExporter(**_build_otlp_exporter_kwargs())
             otlp_processor = BatchSpanProcessor(otlp_exporter)
             self.tracer_provider.add_span_processor(otlp_processor)
             self.logger.info("OTLP exporter configured")

@@ -1,0 +1,59 @@
+name: "epa_cems"
+description: "EPA CEMS connector for hourly emissions data from power plants"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  epa_cems_base_url: "${EPA_CEMS_BASE_URL:https://ampd.epa.gov/ampd}"
+  epa_cems_timeout: 120
+  epa_cems_rate_limit: 30
+  epa_cems_retry_attempts: 3
+  epa_cems_backoff_factor: 2.0
+  batch_size: 1000
+  max_records: 50000
+
+market: "EPA"
+mode: "batch"
+schedule: "0 1 * * *"  # Daily at 1 AM
+enabled: true
+
+# Raw output topics for different datasets
+output_topics:
+  epa_cems_hourly: "ingestion.emissions.epa.cems.hourly.raw.v1"
+  epa_cems_daily: "ingestion.emissions.epa.cems.daily.raw.v1"
+
+schema: "../../../specs/events/emissions/ingestion.emissions.epa.cems.raw.v1.avsc"
+retries: 3
+backoff_seconds: 30
+tenant_strategy: "single"
+
+transforms:
+  - name: sanitize_numeric
+  - name: add_emissions_metadata
+
+tags:
+  - emissions-data
+  - energy
+  - power-plants
+  - hourly-data
+
+# Supported data types
+supported_data_types:
+  - "epa_cems_hourly"
+  - "epa_cems_daily"
+
+# Schedule overrides per dataset
+dataset_schedules:
+  epa_cems_hourly: "0 1 * * *"    # Daily hourly emissions
+  epa_cems_daily: "0 2 * * *"     # Daily aggregated emissions
+
+# Dataset configurations
+dataset_configs:
+  epa_cems_hourly:
+    endpoint: "/api/v1/hourly"
+    description: "Hourly emissions data from power plants"
+    fields: ["facility_id", "unit_id", "date", "hour", "co2_mass", "nox_mass", "so2_mass", "heat_input"]
+  epa_cems_daily:
+    endpoint: "/api/v1/daily"
+    description: "Daily aggregated emissions data"
+    fields: ["facility_id", "unit_id", "date", "co2_mass", "nox_mass", "so2_mass", "heat_input"]

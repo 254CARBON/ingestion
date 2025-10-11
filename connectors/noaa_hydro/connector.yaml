@@ -1,0 +1,74 @@
+name: "noaa_hydro"
+description: "NOAA hydro and climate connector for precipitation, temperature, and streamflow data"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  noaa_hydro_base_url: "${NOAA_HYDRO_BASE_URL:https://water.weather.gov/ahps2}"
+  noaa_hydro_timeout: 60
+  noaa_hydro_rate_limit: 50
+  noaa_hydro_retry_attempts: 3
+  noaa_hydro_backoff_factor: 2.0
+  batch_size: 1000
+  max_records: 10000
+
+market: "NOAA"
+mode: "batch"
+schedule: "0 12 * * *"  # Daily at 12 PM
+enabled: true
+
+# Raw output topics for different datasets
+output_topics:
+  noaa_precipitation: "ingestion.weather.noaa.precipitation.raw.v1"
+  noaa_temperature: "ingestion.weather.noaa.temperature.raw.v1"
+  noaa_streamflow: "ingestion.weather.noaa.streamflow.raw.v1"
+  noaa_snowpack: "ingestion.weather.noaa.snowpack.raw.v1"
+
+schema: "../../../specs/events/weather/ingestion.weather.noaa.raw.v1.avsc"
+retries: 3
+backoff_seconds: 30
+tenant_strategy: "single"
+
+transforms:
+  - name: sanitize_numeric
+  - name: add_weather_metadata
+
+tags:
+  - weather-data
+  - hydro
+  - climate
+  - precipitation
+  - streamflow
+
+# Supported data types
+supported_data_types:
+  - "noaa_precipitation"
+  - "noaa_temperature"
+  - "noaa_streamflow"
+  - "noaa_snowpack"
+
+# Schedule overrides per dataset
+dataset_schedules:
+  noaa_precipitation: "0 12 * * *"    # Daily precipitation
+  noaa_temperature: "0 13 * * *"      # Daily temperature
+  noaa_streamflow: "0 14 * * *"       # Daily streamflow
+  noaa_snowpack: "0 15 * * *"         # Daily snowpack
+
+# Dataset configurations
+dataset_configs:
+  noaa_precipitation:
+    endpoint: "/precipitation/data"
+    description: "Daily precipitation data by station"
+    fields: ["station_id", "date", "precipitation_inches", "latitude", "longitude"]
+  noaa_temperature:
+    endpoint: "/temperature/data"
+    description: "Daily temperature data by station"
+    fields: ["station_id", "date", "max_temp_f", "min_temp_f", "avg_temp_f"]
+  noaa_streamflow:
+    endpoint: "/streamflow/data"
+    description: "Daily streamflow data by gauge"
+    fields: ["gauge_id", "date", "flow_cfs", "stage_feet", "river_name"]
+  noaa_snowpack:
+    endpoint: "/snowpack/data"
+    description: "Snow water equivalent data"
+    fields: ["station_id", "date", "swe_inches", "snow_depth_inches", "elevation_feet"]

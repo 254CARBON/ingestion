@@ -1,0 +1,66 @@
+name: "cec_demand"
+description: "CEC demand forecast connector for California electricity demand projections"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  cec_demand_base_url: "${CEC_DEMAND_BASE_URL:https://www.energy.ca.gov/data-reports}"
+  cec_demand_timeout: 60
+  cec_demand_rate_limit: 20
+  cec_demand_retry_attempts: 3
+  cec_demand_backoff_factor: 2.0
+  batch_size: 500
+  max_records: 5000
+
+market: "CEC"
+mode: "batch"
+schedule: "0 8 * * *"  # Daily at 8 AM
+enabled: true
+
+# Raw output topics for different datasets
+output_topics:
+  cec_demand_forecast: "ingestion.demand.cec.forecast.raw.v1"
+  cec_load_profiles: "ingestion.demand.cec.load_profiles.raw.v1"
+  cec_electrification: "ingestion.demand.cec.electrification.raw.v1"
+
+schema: "../../../specs/events/demand/ingestion.demand.cec.raw.v1.avsc"
+retries: 3
+backoff_seconds: 30
+tenant_strategy: "single"
+
+transforms:
+  - name: sanitize_numeric
+  - name: add_demand_metadata
+
+tags:
+  - demand-data
+  - forecasting
+  - california
+  - electrification
+
+# Supported data types
+supported_data_types:
+  - "cec_demand_forecast"
+  - "cec_load_profiles"
+  - "cec_electrification"
+
+# Schedule overrides per dataset
+dataset_schedules:
+  cec_demand_forecast: "0 8 * * *"    # Daily demand forecasts
+  cec_load_profiles: "0 9 * * *"      # Daily load profiles
+  cec_electrification: "0 10 * * *"   # Daily electrification data
+
+# Dataset configurations
+dataset_configs:
+  cec_demand_forecast:
+    endpoint: "/demand/forecast"
+    description: "California electricity demand forecasts"
+    fields: ["forecast_year", "scenario", "peak_demand_mw", "annual_load_gwh", "growth_rate"]
+  cec_load_profiles:
+    endpoint: "/demand/profiles"
+    description: "Hourly load profiles by sector"
+    fields: ["date", "hour", "residential_mw", "commercial_mw", "industrial_mw", "total_mw"]
+  cec_electrification:
+    endpoint: "/electrification/data"
+    description: "Electrification adoption and impacts"
+    fields: ["year", "sector", "adoption_rate", "additional_load_mw", "co2_reduction_tons"]

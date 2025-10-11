@@ -6,6 +6,7 @@ metrics, and logging across the aggregation service.
 """
 
 import logging
+import os
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 
@@ -24,6 +25,42 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 
 
+def _parse_headers(raw: Optional[str]) -> Optional[Dict[str, str]]:
+    if not raw:
+        return None
+    headers: Dict[str, str] = {}
+    for segment in raw.split(","):
+        if not segment or "=" not in segment:
+            continue
+        key, value = segment.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key:
+            headers[key] = value
+    return headers or None
+
+
+def _build_otlp_kwargs(endpoint: str, headers: Optional[Dict[str, str]]) -> Dict[str, Any]:
+    kwargs: Dict[str, Any] = {"endpoint": endpoint}
+    if headers:
+        kwargs["headers"] = headers
+
+    if endpoint.startswith("http://"):
+        kwargs["insecure"] = True
+    else:
+        certificate_path = os.getenv("OTEL_EXPORTER_OTLP_CERTIFICATE")
+        if certificate_path:
+            try:
+                import grpc  # type: ignore
+
+                with open(certificate_path, "rb") as cert_file:
+                    kwargs["credentials"] = grpc.ssl_channel_credentials(cert_file.read())
+            except (ImportError, OSError):
+                pass
+
+    return kwargs
+
+
 class ObservabilityConfig:
     """Configuration for observability."""
     
@@ -32,7 +69,7 @@ class ObservabilityConfig:
         service_name: str = "aggregation-service",
         service_version: str = "1.0.0",
         environment: str = "production",
-        otlp_endpoint: str = "http://localhost:4317",
+        otlp_endpoint: Optional[str] = None,
         prometheus_endpoint: str = "http://localhost:8889",
         enable_tracing: bool = True,
         enable_metrics: bool = True,
@@ -42,7 +79,15 @@ class ObservabilityConfig:
         self.service_name = service_name
         self.service_version = service_version
         self.environment = environment
-        self.otlp_endpoint = otlp_endpoint
+        resolved_otlp = (
+            otlp_endpoint
+            or os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+            or "http://otel-collector:4317"
+        )
+        self.otlp_endpoint = resolved_otlp
+        self.otlp_metrics_endpoint = os.getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") or resolved_otlp
+        self.otlp_headers = _parse_headers(os.getenv("OTEL_EXPORTER_OTLP_HEADERS"))
         self.prometheus_endpoint = prometheus_endpoint
         self.enable_tracing = enable_tracing
         self.enable_metrics = enable_metrics
@@ -104,7 +149,9 @@ class ObservabilityManager:
         tracer_provider = TracerProvider(resource=resource)
         
         # Create OTLP exporter
-        otlp_exporter = OTLPSpanExporter(endpoint=self.config.otlp_endpoint)
+        otlp_exporter = OTLPSpanExporter(
+            **_build_otlp_kwargs(self.config.otlp_endpoint, self.config.otlp_headers or None)
+        )
         
         # Create span processor
         span_processor = BatchSpanProcessor(otlp_exporter)
@@ -131,7 +178,9 @@ class ObservabilityManager:
         readers.append(prometheus_reader)
         
         # OTLP reader
-        otlp_exporter = OTLPMetricExporter(endpoint=self.config.otlp_endpoint)
+        otlp_exporter = OTLPMetricExporter(
+            **_build_otlp_kwargs(self.config.otlp_metrics_endpoint, self.config.otlp_headers or None)
+        )
         otlp_reader = PeriodicExportingMetricReader(
             exporter=otlp_exporter,
             export_interval_millis=30000  # 30 seconds
@@ -259,4 +308,3 @@ def shutdown_observability() -> None:
     if _observability_manager:
         _observability_manager.shutdown()
         _observability_manager = None
-

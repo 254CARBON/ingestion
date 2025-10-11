@@ -1,0 +1,66 @@
+name: "carb_ct"
+description: "CARB Cap-and-Trade connector for carbon allowance prices and compliance data"
+version: "1.0.0"
+
+# Connector configuration
+config:
+  carb_ct_base_url: "${CARB_CT_BASE_URL:https://www.arb.ca.gov/cc/capandtrade/auction/auction.htm}"
+  carb_ct_timeout: 60
+  carb_ct_rate_limit: 10
+  carb_ct_retry_attempts: 3
+  carb_ct_backoff_factor: 2.0
+  batch_size: 100
+  max_records: 1000
+
+market: "CARB"
+mode: "batch"
+schedule: "0 5 * * *"  # Daily at 5 AM
+enabled: true
+
+# Raw output topics for different datasets
+output_topics:
+  carb_auction_results: "ingestion.carbon.carb.auction_results.raw.v1"
+  carb_allowance_prices: "ingestion.carbon.carb.allowance_prices.raw.v1"
+  carb_compliance_data: "ingestion.carbon.carb.compliance_data.raw.v1"
+
+schema: "../../../specs/events/carbon/ingestion.carbon.carb.raw.v1.avsc"
+retries: 3
+backoff_seconds: 30
+tenant_strategy: "single"
+
+transforms:
+  - name: sanitize_numeric
+  - name: add_carbon_metadata
+
+tags:
+  - carbon-data
+  - cap-and-trade
+  - compliance
+  - auction-results
+
+# Supported data types
+supported_data_types:
+  - "carb_auction_results"
+  - "carb_allowance_prices"
+  - "carb_compliance_data"
+
+# Schedule overrides per dataset
+dataset_schedules:
+  carb_auction_results: "0 5 * * *"    # Daily auction results
+  carb_allowance_prices: "0 6 * * *"   # Daily allowance prices
+  carb_compliance_data: "0 7 * * *"    # Daily compliance data
+
+# Dataset configurations
+dataset_configs:
+  carb_auction_results:
+    endpoint: "/auction/results"
+    description: "Cap-and-trade auction results"
+    fields: ["auction_date", "allowance_type", "clearing_price", "volume_sold", "total_volume"]
+  carb_allowance_prices:
+    endpoint: "/market/prices"
+    description: "Current allowance market prices"
+    fields: ["date", "allowance_type", "bid_price", "ask_price", "volume"]
+  carb_compliance_data:
+    endpoint: "/compliance/data"
+    description: "Compliance and surrender data"
+    fields: ["entity_id", "compliance_period", "allowances_surrendered", "compliance_status"]
