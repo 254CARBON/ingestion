@@ -29,7 +29,7 @@ Out of scope: client-facing APIs, analytics/business logic, or cloud infrastruct
 
 | Environment | Bootstrap | Entry Points | Notes |
 |-------------|-----------|--------------|-------|
-| `local` | `make infra-up` (Kafka/ClickHouse/Redis) + `make airflow-up` | Airflow UI `http://localhost:8084`, Prometheus `http://localhost:9090`, Grafana `http://localhost:3000` | Ideal for connector iteration and schema validation. |
+| `local` | `make infra-up` (Kafka/ClickHouse/Redis) + `make airflow-up` | Airflow UI `http://localhost:8080`, Prometheus `http://localhost:9090`, Grafana `http://localhost:3000` | Ideal for connector iteration and schema validation. |
 | `dev` | `make pipeline-k8s-bootstrap` (delegates to `../infra`) | `kubectl -n ingestion` services; Airflow via `kubectl port-forward svc/airflow-web 8084:8080` | Shared integration cluster; keep DAG updates backwards compatible. |
 | `staging` | GitOps pipeline (managed via `../meta`) | Same topology as dev with stricter RBAC | Smoke tests required before promoting to production. |
 | `production` | GitOps apply through platform CD | Production Airflow + connectors via private endpoints | Enforced SLOs and change approvals; follow runbooks for hotfix/backfill. |
